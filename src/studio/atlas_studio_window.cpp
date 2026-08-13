@@ -9,6 +9,7 @@
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QDesktopServices>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -28,10 +29,12 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QScrollArea>
+#include <QSet>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTextEdit>
 #include <QTextStream>
+#include <QUrl>
 #include <QVBoxLayout>
 
 namespace atlas::studio {
@@ -92,6 +95,23 @@ bool validVersion(const QString &value)
     return QRegularExpression(QStringLiteral("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$")).match(value).hasMatch();
 }
 
+bool safeRelativePath(const QString &value)
+{
+    const QString normalized = QDir::cleanPath(QDir::fromNativeSeparators(value.trimmed()));
+    return !normalized.isEmpty() && normalized != QStringLiteral(".") && normalized != QStringLiteral("..") &&
+           !QDir::isAbsolutePath(normalized) && !normalized.startsWith(QStringLiteral("../")) &&
+           !normalized.contains(QStringLiteral("/../")) && !normalized.contains(QLatin1Char(':'));
+}
+
+bool prohibitedResourceSuffix(const QString &path)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    return suffix == QLatin1String("atlas") || suffix == QLatin1String("atbc") ||
+           suffix == QLatin1String("dll") || suffix == QLatin1String("exe") ||
+           suffix == QLatin1String("bat") || suffix == QLatin1String("cmd") ||
+           suffix == QLatin1String("ps1") || suffix == QLatin1String("com");
+}
+
 QString diagnosticsText(const QStringList &diagnostics)
 {
     QStringList escaped;
@@ -108,8 +128,8 @@ AtlasStudioWindow::AtlasStudioWindow(QWidget *parent)
 {
     setupUi();
     setupActions();
-    resize(1240, 780);
-    setMinimumSize(920, 600);
+    resize(1180, 720);
+    setMinimumSize(820, 560);
     updateWindowTitle();
 }
 
@@ -123,14 +143,17 @@ void AtlasStudioWindow::setupUi()
     auto *toolbar = new QHBoxLayout();
     m_compileButton = new QPushButton(tr("Скомпилировать ATBC"), root);
     m_packageButton = new QPushButton(tr("Собрать .atp"), root);
-    m_installButton = new QPushButton(tr("Показать готовый пакет"), root);
+    m_installButton = new QPushButton(tr("Открыть папку пакета"), root);
     toolbar->addWidget(m_compileButton);
     toolbar->addWidget(m_packageButton);
     toolbar->addWidget(m_installButton);
     toolbar->addStretch(1);
     auto *formatHint = new QLabel(tr("ATBC 2 · исходники не включаются в пакет"), root);
     formatHint->setStyleSheet(QStringLiteral("color: #6b7280;"));
-    toolbar->addWidget(formatHint);
+    formatHint->setToolTip(tr("Готовый .atp содержит manifest.json, объявленные ATBC и объявленные ресурсы — но не исходники .atlas."));
+    formatHint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    formatHint->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    toolbar->addWidget(formatHint, 1);
     rootLayout->addLayout(toolbar);
 
     auto *splitter = new QSplitter(Qt::Horizontal, root);
@@ -153,9 +176,15 @@ void AtlasStudioWindow::setupUi()
     m_homepageEdit->setPlaceholderText(tr("https://… (необязательно)"));
     m_minimumLauncherEdit = new QLineEdit(QStringLiteral("0.4.0"), metadataBox);
     m_pagesEdit = new QLineEdit(metadataBox);
-    m_pagesEdit->setPlaceholderText(tr("welcome, settings (через запятую)"));
+    m_pagesEdit->setPlaceholderText(tr("welcome, settings"));
+    m_pagesEdit->setToolTip(tr("Уникальные ID вкладок через запятую. Например: welcome, settings"));
     m_actionsEdit = new QLineEdit(metadataBox);
-    m_actionsEdit->setPlaceholderText(tr("server.start, server.stop (через запятую)"));
+    m_actionsEdit->setPlaceholderText(tr("server.start, server.stop"));
+    m_actionsEdit->setToolTip(tr("Уникальные ID действий Runtime через запятую."));
+    m_packageFilesEdit = new QPlainTextEdit(metadataBox);
+    m_packageFilesEdit->setPlaceholderText(tr("src/main.atlas -> program/main.atbc\nassets/info.json -> resources/info.json"));
+    m_packageFilesEdit->setToolTip(tr("Одна запись на строку: путь в проекте -> путь в .atp. Файлы .atlas компилируются в ATBC; остальные разрешённые файлы копируются как ресурсы. Исходники .atlas и DLL в пакет не добавляются."));
+    m_packageFilesEdit->setFixedHeight(88);
     m_categoryCombo = new QComboBox(metadataBox);
     m_categoryCombo->addItems({tr("Общее"), tr("Серверы"), tr("Интерфейс"), tr("Утилиты"), tr("Контент")});
     m_descriptionEdit = new QPlainTextEdit(metadataBox);
@@ -171,19 +200,24 @@ void AtlasStudioWindow::setupUi()
     form->addRow(tr("Мин. Launcher"), m_minimumLauncherEdit);
     form->addRow(tr("Страницы UI"), m_pagesEdit);
     form->addRow(tr("Действия Runtime"), m_actionsEdit);
+    form->addRow(tr("Файлы пакета"), m_packageFilesEdit);
     form->addRow(tr("Сайт"), m_homepageEdit);
     metadataLayout->addWidget(metadataBox);
 
     auto *permissionsBox = new QGroupBox(tr("Запрашиваемые разрешения"), metadataWidget);
     auto *permissionsLayout = new QVBoxLayout(permissionsBox);
-    m_storagePermission = new QCheckBox(tr("Данные плагина — собственный изолированный каталог"), permissionsBox);
+    m_storagePermission = new QCheckBox(tr("Данные плагина (изолированный каталог)"), permissionsBox);
     m_storagePermission->setProperty("permission", QStringLiteral("files.plugin-data"));
-    m_networkPermission = new QCheckBox(tr("Метаданные сети — только через API Runtime"), permissionsBox);
+    m_storagePermission->setToolTip(tr("Разрешает доступ только к собственному изолированному каталогу плагина."));
+    m_networkPermission = new QCheckBox(tr("Метаданные сети (API Runtime)"), permissionsBox);
     m_networkPermission->setProperty("permission", QStringLiteral("network.metadata"));
-    m_serversControlPermission = new QCheckBox(tr("Управление серверами Minecraft"), permissionsBox);
+    m_networkPermission->setToolTip(tr("Разрешает только запрос метаданных через ограниченный API Runtime."));
+    m_serversControlPermission = new QCheckBox(tr("Управление сервером Minecraft"), permissionsBox);
     m_serversControlPermission->setProperty("permission", QStringLiteral("servers.control"));
+    m_serversControlPermission->setToolTip(tr("Разрешает операции управления сервером только через Runtime."));
     m_serversConsolePermission = new QCheckBox(tr("Консоль сервера Minecraft"), permissionsBox);
     m_serversConsolePermission->setProperty("permission", QStringLiteral("servers.console"));
+    m_serversConsolePermission->setToolTip(tr("Разрешает доступ к консоли сервера только через Runtime."));
     permissionsLayout->addWidget(m_storagePermission);
     permissionsLayout->addWidget(m_networkPermission);
     permissionsLayout->addWidget(m_serversControlPermission);
@@ -197,6 +231,7 @@ void AtlasStudioWindow::setupUi()
 
     auto *metadataScroll = new QScrollArea(splitter);
     metadataScroll->setWidgetResizable(true);
+    metadataScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     metadataScroll->setFrameShape(QFrame::NoFrame);
     metadataScroll->setWidget(metadataWidget);
     splitter->addWidget(metadataScroll);
@@ -240,6 +275,7 @@ void AtlasStudioWindow::setupUi()
     connect(m_minimumLauncherEdit, &QLineEdit::textEdited, this, changed);
     connect(m_pagesEdit, &QLineEdit::textEdited, this, changed);
     connect(m_actionsEdit, &QLineEdit::textEdited, this, changed);
+    connect(m_packageFilesEdit, &QPlainTextEdit::textChanged, this, changed);
     connect(m_categoryCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, changed);
     connect(m_descriptionEdit, &QPlainTextEdit::textChanged, this, changed);
     connect(m_sourceEdit, &QPlainTextEdit::textChanged, this, changed);
@@ -286,6 +322,7 @@ void AtlasStudioWindow::createProject()
     m_minimumLauncherEdit->setText(QStringLiteral("0.4.0"));
     m_pagesEdit->setText(QStringLiteral("welcome"));
     m_actionsEdit->clear();
+    m_packageFilesEdit->setPlainText(QStringLiteral("src/main.atlas -> program/main.atbc"));
     m_descriptionEdit->setPlainText(tr("Первый плагин Atlas Code."));
     m_categoryCombo->setCurrentIndex(0);
     applyPermissions({});
@@ -329,6 +366,62 @@ bool AtlasStudioWindow::saveProject()
     return true;
 }
 
+bool AtlasStudioWindow::declaredPackageFiles(QVector<ProjectPackageFile> *files, QStringList *diagnostics) const
+{
+    files->clear();
+    const QStringList lines = m_packageFilesEdit->toPlainText().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    if (lines.isEmpty()) {
+        diagnostics->append(tr("Укажите хотя бы один файл пакета в формате «источник -> путь в .atp»."));
+        return false;
+    }
+    if (lines.size() > 128) {
+        diagnostics->append(tr("В одном .atp допускается не более 128 явно объявленных файлов."));
+        return false;
+    }
+
+    QSet<QString> archivePaths;
+    int programCount = 0;
+    for (int index = 0; index < lines.size(); ++index) {
+        const QString line = lines.at(index).trimmed();
+        const QStringList parts = line.split(QStringLiteral("->"));
+        if (parts.size() != 2) {
+            diagnostics->append(tr("Строка файлов %1: ожидается формат «источник -> путь в .atp». ").arg(index + 1));
+            continue;
+        }
+        const QString sourcePath = QDir::cleanPath(QDir::fromNativeSeparators(parts.at(0).trimmed()));
+        const QString archivePath = QDir::cleanPath(QDir::fromNativeSeparators(parts.at(1).trimmed()));
+        if (!safeRelativePath(sourcePath) || !safeRelativePath(archivePath) || archivePath == QLatin1String("manifest.json")) {
+            diagnostics->append(tr("Строка файлов %1: путь должен быть безопасным и относительным.").arg(index + 1));
+            continue;
+        }
+        const QString archiveKey = archivePath.toCaseFolded();
+        if (archivePaths.contains(archiveKey)) {
+            diagnostics->append(tr("Строка файлов %1: путь в .atp повторяется: %2.").arg(index + 1).arg(archivePath));
+            continue;
+        }
+        const bool program = sourcePath.endsWith(QStringLiteral(".atlas"), Qt::CaseInsensitive);
+        if (program) {
+            if (!archivePath.startsWith(QStringLiteral("program/")) || !archivePath.endsWith(QStringLiteral(".atbc"), Qt::CaseInsensitive)) {
+                diagnostics->append(tr("Строка файлов %1: Atlas Code должен собираться в program/*.atbc.").arg(index + 1));
+                continue;
+            }
+            ++programCount;
+        } else if (!archivePath.startsWith(QStringLiteral("resources/")) || prohibitedResourceSuffix(sourcePath)) {
+            diagnostics->append(tr("Строка файлов %1: ресурс должен быть в resources/ и не может быть исходником, ATBC или исполняемым файлом.").arg(index + 1));
+            continue;
+        }
+        archivePaths.insert(archiveKey);
+        files->append({sourcePath, archivePath, program});
+    }
+    if (programCount == 0) {
+        diagnostics->append(tr("В пакете должна быть хотя бы одна программа Atlas Code (*.atlas -> program/*.atbc)."));
+    }
+    if (programCount > 32) {
+        diagnostics->append(tr("В одном .atp допускается не более 32 программ Atlas Code."));
+    }
+    return diagnostics->isEmpty();
+}
+
 bool AtlasStudioWindow::validateProject(QStringList *diagnostics) const
 {
     if (m_projectDirectory.isEmpty()) {
@@ -365,13 +458,15 @@ bool AtlasStudioWindow::validateProject(QStringList *diagnostics) const
     };
     validateDeclarations(commaSeparatedValues(m_pagesEdit->text()), 16, tr("Страницы UI"));
     validateDeclarations(commaSeparatedValues(m_actionsEdit->text()), 64, tr("Действия Runtime"));
+    QVector<ProjectPackageFile> files;
+    declaredPackageFiles(&files, diagnostics);
     if (m_sourceEdit->toPlainText().trimmed().isEmpty()) {
         diagnostics->append(tr("Исходный код Atlas Code пуст."));
     }
     return diagnostics->isEmpty();
 }
 
-bool AtlasStudioWindow::compileCurrentProject(QStringList *diagnostics)
+bool AtlasStudioWindow::compileCurrentProject(QStringList *diagnostics, QVector<ProjectPackageFile> *compiledFiles)
 {
     if (!validateProject(diagnostics)) {
         return false;
@@ -380,69 +475,113 @@ bool AtlasStudioWindow::compileCurrentProject(QStringList *diagnostics)
         diagnostics->append(tr("Сначала исправьте ошибку сохранения проекта."));
         return false;
     }
-    runtime::AtlasCodeCompileResult compilation = runtime::AtlasCodeCompiler::compile(
-        m_nameEdit->text().trimmed(), m_sourceEdit->toPlainText());
-    if (!compilation.success) {
-        for (const runtime::AtlasCodeDiagnostic &diagnostic : compilation.diagnostics) {
-            diagnostics->append(diagnostic.line > 0
-                ? tr("Строка %1: %2").arg(diagnostic.line).arg(diagnostic.message)
-                : diagnostic.message);
-        }
+
+    QVector<ProjectPackageFile> declared;
+    if (!declaredPackageFiles(&declared, diagnostics)) {
         return false;
     }
+
     QVariantList permissions;
     for (const QString &permission : selectedPermissions()) {
         permissions.append(permission);
     }
-    compilation.program.metadata = {
-        {QStringLiteral("id"), m_idEdit->text().trimmed()},
-        {QStringLiteral("name"), m_nameEdit->text().trimmed()},
-        {QStringLiteral("version"), m_versionEdit->text().trimmed()},
-        {QStringLiteral("author"), m_authorEdit->text().trimmed()},
-        {QStringLiteral("description"), m_descriptionEdit->toPlainText().trimmed()},
-        {QStringLiteral("minRuntime"), QStringLiteral("0.4.0")},
-        {QStringLiteral("minLauncher"), m_minimumLauncherEdit->text().trimmed()},
-        {QStringLiteral("category"), m_categoryCombo->currentText()},
-        {QStringLiteral("pages"), commaSeparatedValues(m_pagesEdit->text())},
-        {QStringLiteral("actions"), commaSeparatedValues(m_actionsEdit->text())},
-        {QStringLiteral("permissions"), permissions},
-        {QStringLiteral("homepage"), m_homepageEdit->text().trimmed()}
-    };
-    QString encodingError;
-    const QByteArray atbc = runtime::AtlasCodeCompiler::encodeAtbc(compilation.program, &encodingError);
-    if (atbc.isEmpty()) {
-        diagnostics->append(tr("Не удалось сформировать ATBC: %1").arg(encodingError));
-        return false;
+    QDir projectRoot(m_projectDirectory);
+    QVector<ProjectPackageFile> prepared;
+    int programs = 0;
+    for (const ProjectPackageFile &file : declared) {
+        const QString inputPath = projectRoot.filePath(file.sourcePath);
+        if (!file.program) {
+            if (!QFileInfo(inputPath).isFile()) {
+                diagnostics->append(tr("Не найден объявленный ресурс: %1").arg(file.sourcePath));
+                return false;
+            }
+            prepared.append({inputPath, file.archivePath, false});
+            continue;
+        }
+
+        QFile source(inputPath);
+        if (!source.open(QIODevice::ReadOnly)) {
+            diagnostics->append(tr("Не удалось открыть исходник %1: %2").arg(file.sourcePath, source.errorString()));
+            return false;
+        }
+        const runtime::AtlasCodeCompileResult compilation = runtime::AtlasCodeCompiler::compile(
+            file.sourcePath, QString::fromUtf8(source.readAll()));
+        if (!compilation.success) {
+            for (const runtime::AtlasCodeDiagnostic &diagnostic : compilation.diagnostics) {
+                diagnostics->append(diagnostic.line > 0
+                    ? tr("%1, строка %2: %3").arg(file.sourcePath).arg(diagnostic.line).arg(diagnostic.message)
+                    : tr("%1: %2").arg(file.sourcePath, diagnostic.message));
+            }
+            return false;
+        }
+
+        runtime::AtlasCodeProgram program = compilation.program;
+        program.metadata = {
+            {QStringLiteral("id"), m_idEdit->text().trimmed()},
+            {QStringLiteral("name"), m_nameEdit->text().trimmed()},
+            {QStringLiteral("version"), m_versionEdit->text().trimmed()},
+            {QStringLiteral("author"), m_authorEdit->text().trimmed()},
+            {QStringLiteral("description"), m_descriptionEdit->toPlainText().trimmed()},
+            {QStringLiteral("minRuntime"), QStringLiteral("0.4.0")},
+            {QStringLiteral("minLauncher"), m_minimumLauncherEdit->text().trimmed()},
+            {QStringLiteral("category"), m_categoryCombo->currentText()},
+            {QStringLiteral("programPath"), file.archivePath},
+            {QStringLiteral("pages"), commaSeparatedValues(m_pagesEdit->text())},
+            {QStringLiteral("actions"), commaSeparatedValues(m_actionsEdit->text())},
+            {QStringLiteral("permissions"), permissions},
+            {QStringLiteral("homepage"), m_homepageEdit->text().trimmed()}
+        };
+        QString encodingError;
+        const QByteArray atbc = runtime::AtlasCodeCompiler::encodeAtbc(program, &encodingError);
+        if (atbc.isEmpty()) {
+            diagnostics->append(tr("Не удалось сформировать ATBC для %1: %2").arg(file.sourcePath, encodingError));
+            return false;
+        }
+        const QString outputPath = projectRoot.filePath(QStringLiteral("build/") + file.archivePath);
+        if (!QDir().mkpath(QFileInfo(outputPath).absolutePath())) {
+            diagnostics->append(tr("Не удалось подготовить каталог ATBC: %1").arg(file.archivePath));
+            return false;
+        }
+        QSaveFile output(outputPath);
+        if (!output.open(QIODevice::WriteOnly) || output.write(atbc) != atbc.size() || !output.commit()) {
+            diagnostics->append(tr("Не удалось сохранить ATBC %1: %2").arg(file.archivePath, output.errorString()));
+            return false;
+        }
+        prepared.append({outputPath, file.archivePath, true});
+        ++programs;
+        diagnostics->append(tr("ATBC 2 создан: build/%1 (%2 байт). Исходник %3 в пакет не добавляется.")
+            .arg(file.archivePath).arg(atbc.size()).arg(file.sourcePath));
     }
-    QDir().mkpath(buildDirectoryPath());
-    QSaveFile output(atbcPath());
-    if (!output.open(QIODevice::WriteOnly) || output.write(atbc) != atbc.size() || !output.commit()) {
-        diagnostics->append(tr("Не удалось сохранить ATBC: %1").arg(output.errorString()));
-        return false;
+    if (compiledFiles) {
+        *compiledFiles = prepared;
     }
-    diagnostics->append(tr("ATBC 2 создан: %1 (%2 байт). Исходный .atlas в него не добавляется.")
-        .arg(QDir(m_projectDirectory).relativeFilePath(atbcPath())).arg(atbc.size()));
+    diagnostics->append(tr("Подготовлено программ: %1; ресурсов: %2.").arg(programs).arg(prepared.size() - programs));
     return true;
 }
 
 void AtlasStudioWindow::compileAtbc()
 {
     QStringList diagnostics;
-    const bool success = compileCurrentProject(&diagnostics);
+    QVector<ProjectPackageFile> compiledFiles;
+    const bool success = compileCurrentProject(&diagnostics, &compiledFiles);
     setDiagnostics(diagnostics, success);
     if (success) {
-        statusBar()->showMessage(tr("Бинарный ATBC создан"), 3000);
+        statusBar()->showMessage(tr("Бинарные ATBC созданы: %1").arg(compiledFiles.size()), 3000);
     }
 }
 
 void AtlasStudioWindow::packageProject()
 {
     QStringList diagnostics;
-    if (!compileCurrentProject(&diagnostics)) {
+    QVector<ProjectPackageFile> compiledFiles;
+    if (!compileCurrentProject(&diagnostics, &compiledFiles)) {
         setDiagnostics(diagnostics, false);
         return;
     }
     packager::AtlasPackageRequest request{m_projectDirectory, atbcPath(), packagePath()};
+    for (const ProjectPackageFile &file : compiledFiles) {
+        request.files.append({file.sourcePath, file.archivePath, file.program});
+    }
     const packager::AtlasPackageResult package = packager::AtlasPackageBuilder::build(request);
     diagnostics.append(package.diagnostics);
     setDiagnostics(diagnostics, package.success);
@@ -457,13 +596,11 @@ void AtlasStudioWindow::installPackage()
         packageProject();
     }
     if (QFileInfo::exists(packagePath())) {
-        QFileDialog dialog(this, tr("Готовый пакет .atp"));
-        dialog.setFileMode(QFileDialog::ExistingFile);
-        dialog.setNameFilter(tr("Atlas packages (*.atp)"));
-        dialog.selectFile(packagePath());
+        const QFileInfo packageFile(packagePath());
+        QDesktopServices::openUrl(QUrl::fromLocalFile(packageFile.absolutePath()));
         QMessageBox::information(this, tr("Установите пакет в Launcher"),
-            tr("Готовый пакет создан:\n%1\n\nВ Atlas Launcher откройте «Плагины → Установить .atp» и выберите этот файл.")
-                .arg(QDir::toNativeSeparators(packagePath())));
+            tr("Папка с готовым пакетом открыта:\n%1\n\nВ Atlas Launcher откройте «Плагины → Установить .atp» и выберите файл %2.")
+                .arg(QDir::toNativeSeparators(packageFile.absolutePath()), packageFile.fileName()));
     }
 }
 
@@ -519,7 +656,8 @@ bool AtlasStudioWindow::loadProject(const QString &directory, QString *error)
         return false;
     }
     const QJsonObject project = document.object();
-    QFile source(QDir(directory).filePath(project.value(QStringLiteral("source")).toString(QStringLiteral("src/main.atlas"))));
+    const QString mainSourcePath = project.value(QStringLiteral("source")).toString(QStringLiteral("src/main.atlas"));
+    QFile source(QDir(directory).filePath(mainSourcePath));
     if (!source.open(QIODevice::ReadOnly)) {
         *error = tr("Не удалось открыть исходник: %1").arg(source.errorString());
         return false;
@@ -537,6 +675,12 @@ bool AtlasStudioWindow::loadProject(const QString &directory, QString *error)
     const int categoryIndex = m_categoryCombo->findText(project.value(QStringLiteral("category")).toString());
     m_categoryCombo->setCurrentIndex(categoryIndex < 0 ? 0 : categoryIndex);
     applyPermissions(toStringList(project.value(QStringLiteral("permissions"))));
+    QStringList packageFiles = toStringList(project.value(QStringLiteral("packageFiles")));
+    if (packageFiles.isEmpty()) {
+        packageFiles.append(QStringLiteral("%1 -> %2").arg(mainSourcePath,
+            project.value(QStringLiteral("entryPoint")).toString(QStringLiteral("program/main.atbc"))));
+    }
+    m_packageFilesEdit->setPlainText(packageFiles.join(QLatin1Char('\n')));
     m_sourceEdit->setPlainText(QString::fromUtf8(source.readAll()));
     m_modified = false;
     updateWindowTitle();
@@ -551,6 +695,10 @@ bool AtlasStudioWindow::writeProject(QString *error) const
         *error = tr("Не удалось подготовить структуру каталога проекта.");
         return false;
     }
+    QJsonArray packageFiles;
+    for (const QString &line : m_packageFilesEdit->toPlainText().split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
+        packageFiles.append(line.trimmed());
+    }
     const QJsonObject project = {
         {QStringLiteral("formatVersion"), 1},
         {QStringLiteral("id"), m_idEdit->text().trimmed()},
@@ -564,6 +712,7 @@ bool AtlasStudioWindow::writeProject(QString *error) const
         {QStringLiteral("permissions"), toJsonArray(selectedPermissions())},
         {QStringLiteral("source"), QStringLiteral("src/main.atlas")},
         {QStringLiteral("entryPoint"), QStringLiteral("program/main.atbc")},
+        {QStringLiteral("packageFiles"), packageFiles},
         {QStringLiteral("pages"), toJsonArray(commaSeparatedValues(m_pagesEdit->text()))},
         {QStringLiteral("actions"), toJsonArray(commaSeparatedValues(m_actionsEdit->text()))}
     };

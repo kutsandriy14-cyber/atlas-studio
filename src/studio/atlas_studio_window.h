@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QVector>
 
 class QAction;
 class QCheckBox;
@@ -40,7 +41,14 @@ private:
     bool loadProject(const QString &directory, QString *error);
     bool writeProject(QString *error) const;
     bool validateProject(QStringList *diagnostics) const;
-    bool compileCurrentProject(QStringList *diagnostics);
+    struct ProjectPackageFile {
+        QString sourcePath;
+        QString archivePath;
+        bool program = false;
+    };
+
+    bool compileCurrentProject(QStringList *diagnostics, QVector<ProjectPackageFile> *compiledFiles = nullptr);
+    bool declaredPackageFiles(QVector<ProjectPackageFile> *files, QStringList *diagnostics) const;
     QString projectFilePath() const;
     QString sourceFilePath() const;
     QString buildDirectoryPath() const;
@@ -62,6 +70,7 @@ private:
     QLineEdit *m_minimumLauncherEdit = nullptr;
     QLineEdit *m_pagesEdit = nullptr;
     QLineEdit *m_actionsEdit = nullptr;
+    QPlainTextEdit *m_packageFilesEdit = nullptr;
     QComboBox *m_categoryCombo = nullptr;
     QPlainTextEdit *m_descriptionEdit = nullptr;
     QPlainTextEdit *m_sourceEdit = nullptr;

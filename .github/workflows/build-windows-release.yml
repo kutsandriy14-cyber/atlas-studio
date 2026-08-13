@@ -30,7 +30,10 @@ jobs:
       - name: Set up MinGW
         shell: pwsh
         run: |
-          choco install mingw --no-progress -y
+          # Qt 5.15.2 win64_mingw81 собран с POSIX/SEH MinGW-w64 8.1.
+          # Более новые UCRT toolchain из Chocolatey могут собрать проект, но несовместимы
+          # с ABI Qt и способны аварийно завершить тесты ещё до вывода QtTest.
+          choco install mingw --version=8.1.0 --no-progress -y
           $candidates = @(
             'C:\ProgramData\mingw64\mingw64\bin',
             'C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin'
@@ -45,7 +48,7 @@ jobs:
           $qtRoot = Split-Path -Parent (Split-Path -Parent $env:Qt5_DIR)
           cmake -S . -B build-win64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$qtRoot"
           cmake --build build-win64 --parallel
-          foreach ($binary in @('AtlasStudio.exe', 'AtlasCompiler.exe', 'atlas_studio_package_test.exe')) {
+          foreach ($binary in @('AtlasStudio.exe', 'AtlasCompiler.exe', 'AtlasUpdater.exe', 'atlas_studio_package_test.exe')) {
             if (-not (Test-Path "build-win64\$binary")) { throw "Build output missing: $binary" }
           }
 
@@ -70,7 +73,7 @@ jobs:
           if (Test-Path $deploy) { Remove-Item $deploy -Recurse -Force }
           New-Item -ItemType Directory -Path $deploy -Force | Out-Null
 
-          Copy-Item 'build-win64\AtlasStudio.exe', 'build-win64\AtlasCompiler.exe' -Destination $deploy -Force
+          Copy-Item 'build-win64\AtlasStudio.exe', 'build-win64\AtlasCompiler.exe', 'build-win64\AtlasUpdater.exe' -Destination $deploy -Force
           foreach ($file in @('README.md', 'LICENSE')) {
             if (Test-Path $file) { Copy-Item $file $deploy -Force }
           }
@@ -78,7 +81,7 @@ jobs:
             if (Test-Path $directory) { Copy-Item $directory (Join-Path $deploy $directory) -Recurse -Force }
           }
 
-          foreach ($runtime in @('Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Widgets.dll')) {
+          foreach ($runtime in @('Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Network.dll', 'Qt5Widgets.dll')) {
             $source = Join-Path $qtRoot "bin\$runtime"
             if (-not (Test-Path $source)) { throw "Qt runtime missing: $source" }
             Copy-Item $source $deploy -Force
@@ -93,7 +96,7 @@ jobs:
             Copy-Item $source $deploy -Force
           }
 
-          foreach ($required in @('AtlasStudio.exe', 'AtlasCompiler.exe', 'Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Widgets.dll', 'plugins\platforms\qwindows.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
+          foreach ($required in @('AtlasStudio.exe', 'AtlasCompiler.exe', 'AtlasUpdater.exe', 'Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Network.dll', 'Qt5Widgets.dll', 'plugins\platforms\qwindows.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
             if (-not (Test-Path (Join-Path $deploy $required))) { throw "Portable runtime missing: $required" }
           }
 

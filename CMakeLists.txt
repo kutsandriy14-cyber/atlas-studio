@@ -11,7 +11,7 @@ set(CMAKE_AUTORCC ON)
 
 include(CTest)
 
-find_package(Qt5 5.15 REQUIRED COMPONENTS Core Gui Widgets Test)
+find_package(Qt5 5.15 REQUIRED COMPONENTS Core Gui Widgets Network Test)
 
 add_library(atlas_studio_miniz STATIC
     third_party/miniz/miniz.c
@@ -25,12 +25,15 @@ add_library(atlas_studio_services STATIC
     src/core/atlas_code_compiler.h
     src/packager/atlas_package_builder.cpp
     src/packager/atlas_package_builder.h
+    src/services/update_service.cpp
+    src/services/update_service.h
 )
 target_include_directories(atlas_studio_services PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(atlas_studio_services PUBLIC
     Qt5::Core
+    Qt5::Network
     atlas_studio_miniz
 )
 
@@ -54,7 +57,20 @@ target_link_libraries(AtlasCompiler PRIVATE
     Qt5::Core
 )
 
-install(TARGETS AtlasStudio AtlasCompiler
+add_executable(AtlasUpdater WIN32
+    src/updater/main.cpp
+)
+target_include_directories(AtlasUpdater PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(AtlasUpdater PRIVATE
+    atlas_studio_services
+    Qt5::Core
+    Qt5::Network
+    Qt5::Widgets
+)
+
+install(TARGETS AtlasStudio AtlasCompiler AtlasUpdater
     RUNTIME DESTINATION .
 )
 install(DIRECTORY examples/ DESTINATION examples OPTIONAL)
@@ -62,6 +78,7 @@ install(FILES README.md LICENSE DESTINATION . OPTIONAL)
 
 if(BUILD_TESTING)
     add_test(NAME atlas_compiler_help COMMAND $<TARGET_FILE:AtlasCompiler> --help)
+    add_test(NAME atlas_updater_help COMMAND $<TARGET_FILE:AtlasUpdater> --help)
 
     add_executable(atlas_studio_package_test
         tests/atlas_studio_package_test.cpp
