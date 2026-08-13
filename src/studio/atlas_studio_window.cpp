@@ -24,6 +24,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -32,8 +33,12 @@
 #include <QSet>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QTabWidget>
+#include <QTextBlock>
 #include <QTextEdit>
 #include <QTextStream>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -121,6 +126,112 @@ QString diagnosticsText(const QStringList &diagnostics)
     return escaped.join(QStringLiteral("<br>"));
 }
 
+class CodeEditor;
+
+class LineNumberArea final : public QWidget
+{
+public:
+    explicit LineNumberArea(CodeEditor *editor);
+    QSize sizeHint() const override;
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    CodeEditor *m_editor = nullptr;
+};
+
+class CodeEditor final : public QPlainTextEdit
+{
+public:
+    explicit CodeEditor(QWidget *parent = nullptr)
+        : QPlainTextEdit(parent), m_lineNumberArea(new LineNumberArea(this))
+    {
+        setLineWrapMode(QPlainTextEdit::NoWrap);
+        setTabStopDistance(32.0);
+        connect(this, &QPlainTextEdit::blockCountChanged, this, [this] { updateLineNumberAreaWidth(); });
+        connect(this, &QPlainTextEdit::updateRequest, this, [this](const QRect &rect, const int dy) {
+            if (dy != 0) {
+                m_lineNumberArea->scroll(0, dy);
+            } else {
+                m_lineNumberArea->update(0, rect.y(), m_lineNumberArea->width(), rect.height());
+            }
+            if (rect.contains(viewport()->rect())) {
+                updateLineNumberAreaWidth();
+            }
+        });
+        updateLineNumberAreaWidth();
+    }
+
+    int lineNumberAreaWidth() const
+    {
+        int digits = 1;
+        int maximum = qMax(1, blockCount());
+        while (maximum >= 10) {
+            maximum /= 10;
+            ++digits;
+        }
+        return 14 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+    }
+
+    void lineNumberAreaPaintEvent(QPaintEvent *event)
+    {
+        QPainter painter(m_lineNumberArea);
+        painter.fillRect(event->rect(), QColor(QStringLiteral("#252526")));
+        painter.setPen(QColor(QStringLiteral("#858585")));
+
+        QTextBlock block = firstVisibleBlock();
+        int number = block.blockNumber() + 1;
+        int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
+        int bottom = top + qRound(blockBoundingRect(block).height());
+        while (block.isValid() && top <= event->rect().bottom()) {
+            if (block.isVisible() && bottom >= event->rect().top()) {
+                painter.drawText(0, top, m_lineNumberArea->width() - 6, fontMetrics().height(),
+                    Qt::AlignRight, QString::number(number));
+            }
+            block = block.next();
+            top = bottom;
+            bottom = top + qRound(blockBoundingRect(block).height());
+            ++number;
+        }
+    }
+
+protected:
+    void resizeEvent(QResizeEvent *event) override
+    {
+        QPlainTextEdit::resizeEvent(event);
+        const QRect contents = contentsRect();
+        m_lineNumberArea->setGeometry(QRect(contents.left(), contents.top(), lineNumberAreaWidth(), contents.height()));
+    }
+
+private:
+    void updateLineNumberAreaWidth()
+    {
+        setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
+    }
+
+    LineNumberArea *m_lineNumberArea = nullptr;
+
+    friend class LineNumberArea;
+};
+
+LineNumberArea::LineNumberArea(CodeEditor *editor)
+    : QWidget(editor), m_editor(editor)
+{
+}
+
+QSize LineNumberArea::sizeHint() const
+{
+    return QSize(m_editor ? m_editor->lineNumberAreaWidth() : 0, 0);
+}
+
+void LineNumberArea::paintEvent(QPaintEvent *event)
+{
+    if (m_editor) {
+        m_editor->lineNumberAreaPaintEvent(event);
+    }
+}
+
 } // namespace
 
 AtlasStudioWindow::AtlasStudioWindow(QWidget *parent)
@@ -136,35 +247,97 @@ AtlasStudioWindow::AtlasStudioWindow(QWidget *parent)
 void AtlasStudioWindow::setupUi()
 {
     auto *root = new QWidget(this);
+    root->setObjectName(QStringLiteral("studioRoot"));
     auto *rootLayout = new QVBoxLayout(root);
-    rootLayout->setContentsMargins(10, 10, 10, 10);
-    rootLayout->setSpacing(8);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
 
-    auto *toolbar = new QHBoxLayout();
-    m_compileButton = new QPushButton(tr("Скомпилировать ATBC"), root);
-    m_packageButton = new QPushButton(tr("Собрать .atp"), root);
-    m_installButton = new QPushButton(tr("Открыть папку пакета"), root);
-    toolbar->addWidget(m_compileButton);
-    toolbar->addWidget(m_packageButton);
-    toolbar->addWidget(m_installButton);
-    toolbar->addStretch(1);
-    auto *formatHint = new QLabel(tr("ATBC 2 · исходники не включаются в пакет"), root);
-    formatHint->setStyleSheet(QStringLiteral("color: #6b7280;"));
-    formatHint->setToolTip(tr("Готовый .atp содержит manifest.json, объявленные ATBC и объявленные ресурсы — но не исходники .atlas."));
-    formatHint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    formatHint->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    toolbar->addWidget(formatHint, 1);
-    rootLayout->addLayout(toolbar);
+    auto *commandBar = new QWidget(root);
+    commandBar->setObjectName(QStringLiteral("commandBar"));
+    auto *commandLayout = new QHBoxLayout(commandBar);
+    commandLayout->setContentsMargins(14, 7, 14, 7);
+    commandLayout->setSpacing(8);
+    auto *brand = new QLabel(tr("ATLAS STUDIO"), commandBar);
+    brand->setObjectName(QStringLiteral("studioBrand"));
+    auto *projectCaption = new QLabel(tr("Создавайте безопасные расширения Atlas Code"), commandBar);
+    projectCaption->setObjectName(QStringLiteral("projectCaption"));
+    projectCaption->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_compileButton = new QPushButton(tr("Скомпилировать"), commandBar);
+    m_compileButton->setObjectName(QStringLiteral("compileButton"));
+    m_packageButton = new QPushButton(tr("Собрать .atp"), commandBar);
+    m_packageButton->setObjectName(QStringLiteral("packageButton"));
+    m_installButton = new QPushButton(tr("Показать пакет"), commandBar);
+    m_installButton->setObjectName(QStringLiteral("showPackageButton"));
+    commandLayout->addWidget(brand);
+    commandLayout->addWidget(projectCaption, 1);
+    commandLayout->addWidget(m_compileButton);
+    commandLayout->addWidget(m_packageButton);
+    commandLayout->addWidget(m_installButton);
+    rootLayout->addWidget(commandBar);
 
-    auto *splitter = new QSplitter(Qt::Horizontal, root);
-    splitter->setChildrenCollapsible(false);
+    auto *mainSplitter = new QSplitter(Qt::Horizontal, root);
+    mainSplitter->setObjectName(QStringLiteral("workbenchSplitter"));
+    mainSplitter->setChildrenCollapsible(false);
 
-    auto *metadataWidget = new QWidget(splitter);
+    auto *explorer = new QWidget(mainSplitter);
+    explorer->setObjectName(QStringLiteral("explorerPane"));
+    auto *explorerLayout = new QVBoxLayout(explorer);
+    explorerLayout->setContentsMargins(9, 10, 8, 8);
+    explorerLayout->setSpacing(7);
+    auto *explorerTitle = new QLabel(tr("ПРОВОДНИК"), explorer);
+    explorerTitle->setObjectName(QStringLiteral("explorerTitle"));
+    auto *explorerHint = new QLabel(tr("Проект Atlas Code"), explorer);
+    explorerHint->setObjectName(QStringLiteral("explorerHint"));
+    explorerHint->setWordWrap(true);
+    m_projectTree = new QTreeWidget(explorer);
+    m_projectTree->setObjectName(QStringLiteral("projectTree"));
+    m_projectTree->setHeaderHidden(true);
+    m_projectTree->setRootIsDecorated(true);
+    m_projectTree->setIndentation(14);
+    m_projectTree->setMinimumWidth(190);
+    auto *newProjectButton = new QPushButton(tr("Новый проект…"), explorer);
+    auto *openProjectButton = new QPushButton(tr("Открыть проект…"), explorer);
+    newProjectButton->setObjectName(QStringLiteral("newProjectButton"));
+    openProjectButton->setObjectName(QStringLiteral("openProjectButton"));
+    explorerLayout->addWidget(explorerTitle);
+    explorerLayout->addWidget(explorerHint);
+    explorerLayout->addWidget(m_projectTree, 1);
+    explorerLayout->addWidget(newProjectButton);
+    explorerLayout->addWidget(openProjectButton);
+    mainSplitter->addWidget(explorer);
+
+    auto *workbench = new QSplitter(Qt::Vertical, mainSplitter);
+    workbench->setObjectName(QStringLiteral("editorSplitter"));
+    workbench->setChildrenCollapsible(false);
+    m_editorTabs = new QTabWidget(workbench);
+    m_editorTabs->setObjectName(QStringLiteral("editorTabs"));
+    m_editorTabs->setDocumentMode(true);
+    m_editorTabs->setTabsClosable(false);
+
+    auto *sourceTab = new QWidget(m_editorTabs);
+    auto *sourceLayout = new QVBoxLayout(sourceTab);
+    sourceLayout->setContentsMargins(0, 0, 0, 0);
+    sourceLayout->setSpacing(0);
+    m_sourceEdit = new CodeEditor(sourceTab);
+    m_sourceEdit->setObjectName(QStringLiteral("atlasCodeEditor"));
+    m_sourceEdit->setPlaceholderText(tr("Введите Atlas Code…"));
+    m_sourceEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    sourceLayout->addWidget(m_sourceEdit);
+    m_editorTabs->addTab(sourceTab, tr("main.atlas"));
+
+    auto *metadataWidget = new QWidget(m_editorTabs);
     auto *metadataLayout = new QVBoxLayout(metadataWidget);
-    metadataLayout->setContentsMargins(0, 0, 5, 0);
-    auto *metadataBox = new QGroupBox(tr("Сведения о плагине"), metadataWidget);
+    metadataLayout->setContentsMargins(12, 12, 12, 12);
+    metadataLayout->setSpacing(10);
+    auto *metadataIntro = new QLabel(tr("Сведения пакета определяют, как Launcher покажет расширение и какие безопасные возможности оно запросит."), metadataWidget);
+    metadataIntro->setObjectName(QStringLiteral("metadataIntro"));
+    metadataIntro->setWordWrap(true);
+    metadataLayout->addWidget(metadataIntro);
+
+    auto *metadataBox = new QGroupBox(tr("Метаданные расширения"), metadataWidget);
     auto *form = new QFormLayout(metadataBox);
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_idEdit = new QLineEdit(metadataBox);
     m_idEdit->setPlaceholderText(tr("org.example.my-plugin"));
     m_nameEdit = new QLineEdit(metadataBox);
@@ -174,23 +347,24 @@ void AtlasStudioWindow::setupUi()
     m_authorEdit->setPlaceholderText(tr("Ваше имя или команда"));
     m_homepageEdit = new QLineEdit(metadataBox);
     m_homepageEdit->setPlaceholderText(tr("https://… (необязательно)"));
-    m_minimumLauncherEdit = new QLineEdit(QStringLiteral("0.4.0"), metadataBox);
+    m_minimumLauncherEdit = new QLineEdit(QStringLiteral("0.6.0"), metadataBox);
     m_pagesEdit = new QLineEdit(metadataBox);
     m_pagesEdit->setPlaceholderText(tr("welcome, settings"));
-    m_pagesEdit->setToolTip(tr("Уникальные ID вкладок через запятую. Например: welcome, settings"));
+    m_pagesEdit->setToolTip(tr("Уникальные ID вкладок через запятую. Например: welcome, settings."));
     m_actionsEdit = new QLineEdit(metadataBox);
     m_actionsEdit->setPlaceholderText(tr("server.start, server.stop"));
     m_actionsEdit->setToolTip(tr("Уникальные ID действий Runtime через запятую."));
     m_packageFilesEdit = new QPlainTextEdit(metadataBox);
+    m_packageFilesEdit->setObjectName(QStringLiteral("packageFilesEditor"));
     m_packageFilesEdit->setPlaceholderText(tr("src/main.atlas -> program/main.atbc\nassets/info.json -> resources/info.json"));
-    m_packageFilesEdit->setToolTip(tr("Одна запись на строку: путь в проекте -> путь в .atp. Файлы .atlas компилируются в ATBC; остальные разрешённые файлы копируются как ресурсы. Исходники .atlas и DLL в пакет не добавляются."));
-    m_packageFilesEdit->setFixedHeight(88);
+    m_packageFilesEdit->setToolTip(tr("Одна запись на строку: путь в проекте -> путь в .atp. Исходники .atlas компилируются в ATBC; ресурсы копируются только в resources/."));
+    m_packageFilesEdit->setFixedHeight(102);
     m_categoryCombo = new QComboBox(metadataBox);
     m_categoryCombo->addItems({tr("Общее"), tr("Серверы"), tr("Интерфейс"), tr("Утилиты"), tr("Контент")});
     m_descriptionEdit = new QPlainTextEdit(metadataBox);
     m_descriptionEdit->setPlaceholderText(tr("Кратко опишите назначение расширения"));
     m_descriptionEdit->setMaximumBlockCount(20);
-    m_descriptionEdit->setFixedHeight(82);
+    m_descriptionEdit->setFixedHeight(84);
     form->addRow(tr("ID *"), m_idEdit);
     form->addRow(tr("Название *"), m_nameEdit);
     form->addRow(tr("Версия *"), m_versionEdit);
@@ -204,68 +378,81 @@ void AtlasStudioWindow::setupUi()
     form->addRow(tr("Сайт"), m_homepageEdit);
     metadataLayout->addWidget(metadataBox);
 
-    auto *permissionsBox = new QGroupBox(tr("Запрашиваемые разрешения"), metadataWidget);
+    auto *permissionsBox = new QGroupBox(tr("Разрешения, видимые пользователю при установке"), metadataWidget);
     auto *permissionsLayout = new QVBoxLayout(permissionsBox);
-    m_storagePermission = new QCheckBox(tr("Данные плагина (изолированный каталог)"), permissionsBox);
+    m_storagePermission = new QCheckBox(tr("Данные плагина — только изолированный каталог"), permissionsBox);
     m_storagePermission->setProperty("permission", QStringLiteral("files.plugin-data"));
-    m_storagePermission->setToolTip(tr("Разрешает доступ только к собственному изолированному каталогу плагина."));
-    m_networkPermission = new QCheckBox(tr("Метаданные сети (API Runtime)"), permissionsBox);
+    m_networkPermission = new QCheckBox(tr("Метаданные сети — через ограниченный API Runtime"), permissionsBox);
     m_networkPermission->setProperty("permission", QStringLiteral("network.metadata"));
-    m_networkPermission->setToolTip(tr("Разрешает только запрос метаданных через ограниченный API Runtime."));
     m_serversControlPermission = new QCheckBox(tr("Управление сервером Minecraft"), permissionsBox);
     m_serversControlPermission->setProperty("permission", QStringLiteral("servers.control"));
-    m_serversControlPermission->setToolTip(tr("Разрешает операции управления сервером только через Runtime."));
     m_serversConsolePermission = new QCheckBox(tr("Консоль сервера Minecraft"), permissionsBox);
     m_serversConsolePermission->setProperty("permission", QStringLiteral("servers.console"));
-    m_serversConsolePermission->setToolTip(tr("Разрешает доступ к консоли сервера только через Runtime."));
+    auto *permissionHint = new QLabel(tr("Разрешения не дают Atlas Code доступа к DLL, памяти процесса или произвольным файлам. Пользователь видит и подтверждает их перед установкой пакета."), permissionsBox);
+    permissionHint->setObjectName(QStringLiteral("permissionHint"));
+    permissionHint->setWordWrap(true);
     permissionsLayout->addWidget(m_storagePermission);
     permissionsLayout->addWidget(m_networkPermission);
     permissionsLayout->addWidget(m_serversControlPermission);
     permissionsLayout->addWidget(m_serversConsolePermission);
-    auto *permissionHint = new QLabel(tr("Пользователь подтверждает их при установке .atp. Они не дают доступа к DLL, памяти или произвольным файлам."), permissionsBox);
-    permissionHint->setWordWrap(true);
-    permissionHint->setStyleSheet(QStringLiteral("color: #6b7280;"));
     permissionsLayout->addWidget(permissionHint);
     metadataLayout->addWidget(permissionsBox);
     metadataLayout->addStretch(1);
 
-    auto *metadataScroll = new QScrollArea(splitter);
+    auto *metadataScroll = new QScrollArea(m_editorTabs);
+    metadataScroll->setObjectName(QStringLiteral("metadataScroll"));
     metadataScroll->setWidgetResizable(true);
     metadataScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     metadataScroll->setFrameShape(QFrame::NoFrame);
     metadataScroll->setWidget(metadataWidget);
-    splitter->addWidget(metadataScroll);
+    m_editorTabs->addTab(metadataScroll, tr("Пакет и разрешения"));
+    workbench->addWidget(m_editorTabs);
 
-    auto *editorWidget = new QWidget(splitter);
-    auto *editorLayout = new QVBoxLayout(editorWidget);
-    editorLayout->setContentsMargins(5, 0, 0, 0);
-    auto *editorLabel = new QLabel(tr("Исходный код Atlas Code — src/main.atlas"), editorWidget);
-    editorLabel->setStyleSheet(QStringLiteral("font-weight: 600;"));
-    editorLayout->addWidget(editorLabel);
-    m_sourceEdit = new QPlainTextEdit(editorWidget);
-    m_sourceEdit->setTabStopDistance(32.0);
-    m_sourceEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
-    m_sourceEdit->setPlaceholderText(tr("Введите Atlas Code…"));
-    m_sourceEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    editorLayout->addWidget(m_sourceEdit, 1);
-    auto *diagnosticsLabel = new QLabel(tr("Проверка и журнал сборки"), editorWidget);
-    diagnosticsLabel->setStyleSheet(QStringLiteral("font-weight: 600;"));
-    editorLayout->addWidget(diagnosticsLabel);
-    m_diagnosticsEdit = new QTextEdit(editorWidget);
+    m_bottomTabs = new QTabWidget(workbench);
+    m_bottomTabs->setObjectName(QStringLiteral("bottomTabs"));
+    m_bottomTabs->setDocumentMode(true);
+    m_diagnosticsEdit = new QTextEdit(m_bottomTabs);
+    m_diagnosticsEdit->setObjectName(QStringLiteral("problemsOutput"));
     m_diagnosticsEdit->setReadOnly(true);
-    m_diagnosticsEdit->setMinimumHeight(145);
-    m_diagnosticsEdit->setHtml(tr("<span style='color:#6b7280'>Создайте или откройте проект Atlas Code.</span>"));
-    editorLayout->addWidget(m_diagnosticsEdit);
-    splitter->addWidget(editorWidget);
-    splitter->setStretchFactor(0, 0);
-    splitter->setStretchFactor(1, 1);
-    splitter->setSizes({355, 850});
-    rootLayout->addWidget(splitter, 1);
-
+    m_diagnosticsEdit->setHtml(tr("<span style='color:#a0a0a0'>Создайте или откройте проект Atlas Code.</span>"));
+    m_bottomTabs->addTab(m_diagnosticsEdit, tr("Проблемы и сборка"));
+    auto *reference = new QTextEdit(m_bottomTabs);
+    reference->setObjectName(QStringLiteral("atlasCodeReference"));
+    reference->setReadOnly(true);
+    reference->setHtml(tr("<h3>Atlas Code: быстрый старт</h3>"
+        "<p><b>1.</b> Создайте проект. Основной код находится в <code>src/main.atlas</code>.</p>"
+        "<p><b>2.</b> Опишите действие через блок события:</p>"
+        "<pre>on launcher.started\n  call ui.page.create id=welcome title=\"Привет\"\n  call ui.control.add id=welcome type=label text=\"Мой плагин\"\nend</pre>"
+        "<p><b>3.</b> Во вкладке «Пакет и разрешения» заполните ID, описание, список файлов и только нужные разрешения.</p>"
+        "<p><b>4.</b> Нажмите «Скомпилировать», затем «Собрать .atp». В архив попадут <code>manifest.json</code>, ATBC и явно объявленные ресурсы; исходные <code>.atlas</code> не включаются.</p>"
+        "<p><b>Безопасность.</b> Atlas Code не выполняет произвольный C++, не загружает DLL и не получает доступ к файловой системе без объявленного разрешения.</p>"));
+    m_bottomTabs->addTab(reference, tr("Справочник Atlas Code"));
+    workbench->addWidget(m_bottomTabs);
+    workbench->setStretchFactor(0, 1);
+    workbench->setStretchFactor(1, 0);
+    workbench->setSizes({520, 170});
+    mainSplitter->addWidget(workbench);
+    mainSplitter->setStretchFactor(0, 0);
+    mainSplitter->setStretchFactor(1, 1);
+    mainSplitter->setSizes({245, 935});
+    rootLayout->addWidget(mainSplitter, 1);
     setCentralWidget(root);
+
     connect(m_compileButton, &QPushButton::clicked, this, &AtlasStudioWindow::compileAtbc);
     connect(m_packageButton, &QPushButton::clicked, this, &AtlasStudioWindow::packageProject);
     connect(m_installButton, &QPushButton::clicked, this, &AtlasStudioWindow::installPackage);
+    connect(newProjectButton, &QPushButton::clicked, this, &AtlasStudioWindow::createProject);
+    connect(openProjectButton, &QPushButton::clicked, this, &AtlasStudioWindow::openProject);
+    connect(m_projectTree, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem *item) {
+        const QString target = item->data(0, Qt::UserRole).toString();
+        if (target == QLatin1String("source")) {
+            m_editorTabs->setCurrentIndex(0);
+            m_sourceEdit->setFocus();
+        } else if (target == QLatin1String("manifest")) {
+            m_editorTabs->setCurrentIndex(1);
+        }
+    });
+
     const auto changed = [this] { markModified(); };
     connect(m_idEdit, &QLineEdit::textEdited, this, changed);
     connect(m_nameEdit, &QLineEdit::textEdited, this, changed);
@@ -282,6 +469,7 @@ void AtlasStudioWindow::setupUi()
     for (QCheckBox *box : {m_storagePermission, m_networkPermission, m_serversControlPermission, m_serversConsolePermission}) {
         connect(box, &QCheckBox::toggled, this, changed);
     }
+    rebuildProjectTree();
 }
 
 void AtlasStudioWindow::setupActions()
@@ -293,7 +481,15 @@ void AtlasStudioWindow::setupActions()
     m_saveAction = fileMenu->addAction(tr("Сохранить"), this, [this] { saveProject(); }, QKeySequence::Save);
     fileMenu->addSeparator();
     fileMenu->addAction(tr("Выход"), this, &QWidget::close, QKeySequence::Quit);
-    statusBar()->showMessage(tr("Atlas Studio готов"));
+
+    QMenu *buildMenu = menuBar()->addMenu(tr("&Сборка"));
+    buildMenu->addAction(tr("Скомпилировать ATBC"), this, &AtlasStudioWindow::compileAtbc, QKeySequence(Qt::CTRL | Qt::Key_B));
+    buildMenu->addAction(tr("Собрать .atp"), this, &AtlasStudioWindow::packageProject, QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B));
+    buildMenu->addAction(tr("Показать готовый пакет"), this, &AtlasStudioWindow::installPackage);
+
+    QMenu *helpMenu = menuBar()->addMenu(tr("&Справка"));
+    helpMenu->addAction(tr("Справочник Atlas Code"), this, &AtlasStudioWindow::showAtlasCodeReference, QKeySequence::HelpContents);
+    statusBar()->showMessage(tr("Готово. Создайте проект или откройте существующий Atlas Code проект."));
 }
 
 void AtlasStudioWindow::createProject()
@@ -361,6 +557,7 @@ bool AtlasStudioWindow::saveProject()
         return false;
     }
     m_modified = false;
+    rebuildProjectTree();
     updateWindowTitle();
     statusBar()->showMessage(tr("Проект сохранён"), 2500);
     return true;
@@ -635,10 +832,56 @@ void AtlasStudioWindow::closeEvent(QCloseEvent *event)
     }
 }
 
+void AtlasStudioWindow::rebuildProjectTree()
+{
+    if (!m_projectTree) {
+        return;
+    }
+    m_projectTree->clear();
+    if (m_projectDirectory.isEmpty()) {
+        auto *placeholder = new QTreeWidgetItem(m_projectTree, {tr("Нет открытого проекта")});
+        placeholder->setDisabled(true);
+        return;
+    }
+
+    const QFileInfo projectInfo(m_projectDirectory);
+    auto *root = new QTreeWidgetItem(m_projectTree, {projectInfo.fileName().isEmpty() ? m_projectDirectory : projectInfo.fileName()});
+    root->setExpanded(true);
+    auto *manifest = new QTreeWidgetItem(root, {QStringLiteral("atlas-project.json")});
+    manifest->setData(0, Qt::UserRole, QStringLiteral("manifest"));
+    auto *sourceFolder = new QTreeWidgetItem(root, {QStringLiteral("src")});
+    sourceFolder->setExpanded(true);
+    auto *source = new QTreeWidgetItem(sourceFolder, {QStringLiteral("main.atlas")});
+    source->setData(0, Qt::UserRole, QStringLiteral("source"));
+    auto *buildFolder = new QTreeWidgetItem(root, {QStringLiteral("build")});
+    auto *distFolder = new QTreeWidgetItem(root, {QStringLiteral("dist")});
+    if (QFileInfo::exists(atbcPath())) {
+        new QTreeWidgetItem(buildFolder, {QStringLiteral("main.atbc")});
+        buildFolder->setExpanded(true);
+    }
+    const QDir dist(QDir(m_projectDirectory).filePath(QStringLiteral("dist")));
+    for (const QFileInfo &file : dist.entryInfoList(QStringList{QStringLiteral("*.atp")}, QDir::Files, QDir::Name)) {
+        new QTreeWidgetItem(distFolder, {file.fileName()});
+    }
+    if (distFolder->childCount() > 0) {
+        distFolder->setExpanded(true);
+    }
+    m_projectTree->setCurrentItem(source);
+}
+
+void AtlasStudioWindow::showAtlasCodeReference()
+{
+    if (m_bottomTabs) {
+        m_bottomTabs->setCurrentIndex(1);
+    }
+    statusBar()->showMessage(tr("Открыт встроенный справочник Atlas Code."), 3000);
+}
+
 void AtlasStudioWindow::setProjectDirectory(const QString &directory)
 {
     m_projectDirectory = QDir::cleanPath(directory);
     m_modified = false;
+    rebuildProjectTree();
     updateWindowTitle();
 }
 
@@ -757,7 +1000,10 @@ void AtlasStudioWindow::applyPermissions(const QStringList &permissions)
 void AtlasStudioWindow::setDiagnostics(const QStringList &diagnostics, const bool success)
 {
     m_diagnosticsEdit->setHtml(QStringLiteral("<div style='color:%1'>%2</div>")
-        .arg(success ? QStringLiteral("#166534") : QStringLiteral("#b91c1c"), diagnosticsText(diagnostics)));
+        .arg(success ? QStringLiteral("#89d185") : QStringLiteral("#f14c4c"), diagnosticsText(diagnostics)));
+    if (m_bottomTabs) {
+        m_bottomTabs->setCurrentIndex(0);
+    }
 }
 
 void AtlasStudioWindow::updateWindowTitle()

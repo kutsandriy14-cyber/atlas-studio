@@ -88,4 +88,22 @@ if(BUILD_TESTING)
         Qt5::Core
     )
     add_test(NAME atlas_studio_package_test COMMAND atlas_studio_package_test)
+
+    add_executable(atlas_studio_ui_test
+        tests/atlas_studio_ui_test.cpp
+        src/studio/atlas_studio_window.cpp
+        src/studio/atlas_studio_window.h
+    )
+    target_link_libraries(atlas_studio_ui_test PRIVATE
+        atlas_studio_services
+        Qt5::Core
+        Qt5::Gui
+        Qt5::Widgets
+    )
+    add_test(NAME atlas_studio_ui_test COMMAND atlas_studio_ui_test)
+    if(UNIX)
+        set_tests_properties(atlas_studio_ui_test PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        )
+    endif()
 endif()

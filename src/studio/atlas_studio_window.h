@@ -11,6 +11,8 @@ class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
 class QTextEdit;
+class QTabWidget;
+class QTreeWidget;
 
 namespace atlas::studio {
 
@@ -57,6 +59,8 @@ private:
     QStringList selectedPermissions() const;
     void applyPermissions(const QStringList &permissions);
     void setDiagnostics(const QStringList &diagnostics, bool success = false);
+    void rebuildProjectTree();
+    void showAtlasCodeReference();
     void updateWindowTitle();
 
     QString m_projectDirectory;
@@ -75,6 +79,9 @@ private:
     QPlainTextEdit *m_descriptionEdit = nullptr;
     QPlainTextEdit *m_sourceEdit = nullptr;
     QTextEdit *m_diagnosticsEdit = nullptr;
+    QTabWidget *m_editorTabs = nullptr;
+    QTabWidget *m_bottomTabs = nullptr;
+    QTreeWidget *m_projectTree = nullptr;
     QCheckBox *m_storagePermission = nullptr;
     QCheckBox *m_networkPermission = nullptr;
     QCheckBox *m_serversControlPermission = nullptr;

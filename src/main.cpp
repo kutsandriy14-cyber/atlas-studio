@@ -43,6 +43,48 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName(QStringLiteral("Atlas Studio"));
     QCoreApplication::setApplicationVersion(QString::fromLatin1(kStudioVersion));
     application.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    application.setStyleSheet(QStringLiteral(R"(
+        QMainWindow, QWidget#studioRoot { background: #1e1e1e; color: #d4d4d4; }
+        QMenuBar { background: #252526; color: #d4d4d4; border-bottom: 1px solid #3c3c3c; }
+        QMenuBar::item { padding: 5px 9px; background: transparent; }
+        QMenuBar::item:selected, QMenu::item:selected { background: #094771; }
+        QMenu { background: #252526; color: #d4d4d4; border: 1px solid #454545; }
+        QMenu::item { padding: 6px 24px 6px 20px; }
+        QWidget#commandBar { background: #252526; border-bottom: 1px solid #3c3c3c; }
+        QLabel#studioBrand { color: #4fc1ff; font-weight: 700; letter-spacing: 1px; }
+        QLabel#projectCaption, QLabel#explorerHint, QLabel#metadataIntro, QLabel#permissionHint { color: #a0a0a0; }
+        QLabel#explorerTitle { color: #c8c8c8; font-weight: 700; letter-spacing: 1px; }
+        QWidget#explorerPane { background: #252526; border-right: 1px solid #3c3c3c; }
+        QTreeWidget#projectTree { background: #252526; border: 0; color: #cccccc; outline: 0; }
+        QTreeWidget#projectTree::item { height: 24px; padding-left: 3px; }
+        QTreeWidget#projectTree::item:selected { background: #37373d; color: #ffffff; }
+        QTabWidget::pane { border: 0; background: #1e1e1e; }
+        QTabBar { background: #252526; }
+        QTabBar::tab { background: #2d2d2d; color: #969696; border: 0; border-right: 1px solid #1e1e1e; padding: 8px 16px; min-width: 105px; }
+        QTabBar::tab:selected { background: #1e1e1e; color: #ffffff; border-top: 1px solid #007acc; }
+        QPlainTextEdit#atlasCodeEditor { background: #1e1e1e; color: #d4d4d4; border: 0; selection-background-color: #264f78; }
+        QTextEdit { background: #1e1e1e; color: #d4d4d4; border: 0; selection-background-color: #264f78; }
+        QScrollArea#metadataScroll { background: #1e1e1e; }
+        QScrollArea#metadataScroll > QWidget > QWidget { background: #1e1e1e; }
+        QGroupBox { color: #d4d4d4; border: 1px solid #3c3c3c; border-radius: 3px; margin-top: 12px; padding: 12px 8px 8px 8px; font-weight: 600; }
+        QGroupBox::title { subcontrol-origin: margin; left: 9px; padding: 0 4px; }
+        QLineEdit, QPlainTextEdit#packageFilesEditor, QComboBox { background: #3c3c3c; color: #f0f0f0; border: 1px solid #555555; border-radius: 2px; padding: 5px; selection-background-color: #264f78; }
+        QLineEdit:focus, QPlainTextEdit#packageFilesEditor:focus, QComboBox:focus { border: 1px solid #007fd4; }
+        QComboBox::drop-down { border: 0; width: 22px; }
+        QComboBox QAbstractItemView { background: #3c3c3c; color: #f0f0f0; selection-background-color: #094771; }
+        QCheckBox { color: #d4d4d4; spacing: 7px; }
+        QPushButton { background: #333333; color: #f0f0f0; border: 1px solid #4a4a4a; border-radius: 3px; padding: 6px 11px; }
+        QPushButton:hover { background: #3e3e42; }
+        QPushButton:pressed { background: #094771; }
+        QPushButton#compileButton, QPushButton#packageButton { background: #0e639c; border-color: #1177bb; color: #ffffff; }
+        QPushButton#compileButton:hover, QPushButton#packageButton:hover { background: #1177bb; }
+        QStatusBar { background: #007acc; color: #ffffff; }
+        QStatusBar::item { border: 0; }
+        QSplitter::handle { background: #3c3c3c; }
+        QSplitter::handle:hover { background: #007acc; }
+        QScrollBar:vertical { background: #1e1e1e; width: 12px; }
+        QScrollBar::handle:vertical { background: #424242; min-height: 24px; border-radius: 4px; }
+    )"));
 
     atlas::studio::AtlasStudioWindow window;
     window.show();
