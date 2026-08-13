@@ -97,13 +97,18 @@ bool isSafeArchivePath(const QString &path)
 
 bool isInsideProject(const QString &projectDirectory, const QFileInfo &fileInfo)
 {
-    const QString root = QFileInfo(projectDirectory).canonicalFilePath();
-    const QString file = fileInfo.canonicalFilePath();
+    const QString root = QDir::cleanPath(QDir::fromNativeSeparators(
+        QFileInfo(projectDirectory).canonicalFilePath()));
+    const QString file = QDir::cleanPath(QDir::fromNativeSeparators(fileInfo.canonicalFilePath()));
     if (root.isEmpty() || file.isEmpty()) {
         return false;
     }
-    const QString prefix = root.endsWith(QDir::separator()) ? root : root + QDir::separator();
+    const QString prefix = root.endsWith(QLatin1Char('/')) ? root : root + QLatin1Char('/');
+#ifdef Q_OS_WIN
+    return file.startsWith(prefix, Qt::CaseInsensitive);
+#else
     return file.startsWith(prefix);
+#endif
 }
 
 QJsonArray toJsonArray(const QStringList &values)
