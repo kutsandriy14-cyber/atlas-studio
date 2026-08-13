@@ -1,0 +1,23 @@
+# CMake and local build products
+/build*/
+/cmake-build-*/
+/CMakeFiles/
+/CMakeCache.txt
+/CTestTestfile.cmake
+/Testing/
+/cmake_install.cmake
+/Makefile
+*.cmake.user
+
+# Local packaged artifacts
+/dist/
+*.atbc
+*.atp
+
+# IDE and operating-system files
+.vscode/
+.idea/
+*.user
+*.user.*
+.DS_Store
+Thumbs.db

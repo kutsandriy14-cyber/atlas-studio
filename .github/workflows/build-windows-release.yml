@@ -1,0 +1,114 @@
+name: Build Atlas Studio for Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Qt 5.15.2 for MinGW 8.1
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '5.15.2'
+          host: windows
+          target: desktop
+          arch: win64_mingw81
+          cache: true
+
+      - name: Set up MinGW
+        shell: pwsh
+        run: |
+          choco install mingw --no-progress -y
+          $candidates = @(
+            'C:\ProgramData\mingw64\mingw64\bin',
+            'C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin'
+          )
+          $mingwBin = $candidates | Where-Object { Test-Path (Join-Path $_ 'g++.exe') } | Select-Object -First 1
+          if (-not $mingwBin) { throw 'MinGW compiler was not installed.' }
+          $mingwBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Configure and build
+        shell: pwsh
+        run: |
+          $qtRoot = Split-Path -Parent (Split-Path -Parent $env:Qt5_DIR)
+          cmake -S . -B build-win64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$qtRoot"
+          cmake --build build-win64 --parallel
+          foreach ($binary in @('AtlasStudio.exe', 'AtlasCompiler.exe', 'atlas_studio_package_test.exe')) {
+            if (-not (Test-Path "build-win64\$binary")) { throw "Build output missing: $binary" }
+          }
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          $qtRoot = Split-Path -Parent (Split-Path -Parent $env:Qt5_DIR)
+          $env:PATH = "$qtRoot\bin;$env:PATH"
+          ctest --test-dir build-win64 --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Assemble portable archive
+        shell: pwsh
+        run: |
+          $qtRoot = Split-Path -Parent (Split-Path -Parent $env:Qt5_DIR)
+          $candidates = @(
+            'C:\ProgramData\mingw64\mingw64\bin',
+            'C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin'
+          )
+          $mingwBin = $candidates | Where-Object { Test-Path (Join-Path $_ 'g++.exe') } | Select-Object -First 1
+          $deploy = 'dist\AtlasStudio-win64'
+          if (Test-Path $deploy) { Remove-Item $deploy -Recurse -Force }
+          New-Item -ItemType Directory -Path $deploy -Force | Out-Null
+
+          Copy-Item 'build-win64\AtlasStudio.exe', 'build-win64\AtlasCompiler.exe' -Destination $deploy -Force
+          foreach ($file in @('README.md', 'LICENSE')) {
+            if (Test-Path $file) { Copy-Item $file $deploy -Force }
+          }
+          foreach ($directory in @('examples', 'docs')) {
+            if (Test-Path $directory) { Copy-Item $directory (Join-Path $deploy $directory) -Recurse -Force }
+          }
+
+          foreach ($runtime in @('Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Widgets.dll')) {
+            $source = Join-Path $qtRoot "bin\$runtime"
+            if (-not (Test-Path $source)) { throw "Qt runtime missing: $source" }
+            Copy-Item $source $deploy -Force
+          }
+          $plugins = Join-Path $qtRoot 'plugins'
+          if (-not (Test-Path $plugins)) { throw "Qt plugin directory missing: $plugins" }
+          Copy-Item $plugins (Join-Path $deploy 'plugins') -Recurse -Force
+
+          foreach ($runtime in @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
+            $source = Join-Path $mingwBin $runtime
+            if (-not (Test-Path $source)) { throw "MinGW runtime missing: $source" }
+            Copy-Item $source $deploy -Force
+          }
+
+          foreach ($required in @('AtlasStudio.exe', 'AtlasCompiler.exe', 'Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Widgets.dll', 'plugins\platforms\qwindows.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
+            if (-not (Test-Path (Join-Path $deploy $required))) { throw "Portable runtime missing: $required" }
+          }
+
+          $archive = 'dist\AtlasStudio-0.1.0-win64-portable.zip'
+          if (Test-Path $archive) { Remove-Item $archive -Force }
+          Compress-Archive -Path "$deploy\*" -DestinationPath $archive -CompressionLevel Optimal
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
+          Set-Content -Path 'dist\SHA256SUMS.txt' -Value "$hash  $(Split-Path $archive -Leaf)"
+          Get-Content 'dist\SHA256SUMS.txt'
+
+      - name: Upload portable archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-studio-0.1.0-windows
+          if-no-files-found: error
+          path: |
+            dist/AtlasStudio-0.1.0-win64-portable.zip
+            dist/SHA256SUMS.txt
