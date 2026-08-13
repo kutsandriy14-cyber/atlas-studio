@@ -88,5 +88,5 @@ if(BUILD_TESTING)
         Qt5::Core
         Qt5::Test
     )
-    add_test(NAME atlas_studio_package_test COMMAND atlas_studio_package_test)
+    add_test(NAME atlas_studio_package_test COMMAND atlas_studio_package_test -txt -v2)
 endif()
