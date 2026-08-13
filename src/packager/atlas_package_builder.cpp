@@ -11,8 +11,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QSet>
-#include <QTemporaryFile>
 #include <QVersionNumber>
 
 namespace atlas::packager {
@@ -140,17 +140,17 @@ bool writeZip(const QString &path, const QByteArray &manifest, const QVector<Pre
         return false;
     }
 
-    QTemporaryFile temporary(outputInfo.absolutePath() + QStringLiteral("/.atlas-studio-XXXXXX.atp"));
-    temporary.setAutoRemove(false);
-    if (!temporary.open()) {
-        *error = QStringLiteral("Не удалось подготовить временный .atp: %1").arg(temporary.errorString());
-        return false;
+    size_t initialSize = static_cast<size_t>(manifest.size());
+    for (const PreparedFile &file : files) {
+        initialSize += static_cast<size_t>(file.content.size());
     }
-    const QString temporaryPath = temporary.fileName();
-    temporary.close();
 
+    // miniz открывает файл через stdio. На Windows это привязывает упаковку к локальной
+    // кодировке путей. Собираем ZIP в памяти (вход уже ограничен 64 МиБ), затем QSaveFile
+    // безопасно и атомарно записывает байты по Unicode-пути назначения.
     mz_zip_archive archive{};
-    bool ok = mz_zip_writer_init_file(&archive, temporaryPath.toUtf8().constData(), 0) != 0;
+    bool initialized = mz_zip_writer_init_heap(&archive, 0, initialSize) != 0;
+    bool ok = initialized;
     if (ok) {
         ok = mz_zip_writer_add_mem(&archive, "manifest.json", manifest.constData(),
                                    static_cast<size_t>(manifest.size()), MZ_BEST_COMPRESSION) != 0;
@@ -161,21 +161,35 @@ bool writeZip(const QString &path, const QByteArray &manifest, const QVector<Pre
                                        static_cast<size_t>(file.content.size()), MZ_BEST_COMPRESSION) != 0;
         }
     }
-    if (ok) {
-        ok = mz_zip_writer_finalize_archive(&archive) != 0;
-    }
-    mz_zip_writer_end(&archive);
 
-    if (!ok) {
-        QFile::remove(temporaryPath);
-        *error = QStringLiteral("Не удалось создать ZIP-архив .atp");
+    void *zipData = nullptr;
+    size_t zipSize = 0;
+    if (ok) {
+        ok = mz_zip_writer_finalize_heap_archive(&archive, &zipData, &zipSize) != 0;
+    }
+    const QString minizError = QString::fromLatin1(
+        mz_zip_get_error_string(mz_zip_get_last_error(&archive)));
+    if (initialized) {
+        mz_zip_writer_end(&archive);
+    }
+    if (!ok || !zipData || zipSize == 0) {
+        if (zipData) {
+            mz_free(zipData);
+        }
+        *error = QStringLiteral("Не удалось создать ZIP-архив .atp: %1").arg(minizError);
         return false;
     }
 
-    QFile::remove(path);
-    if (!QFile::rename(temporaryPath, path)) {
-        QFile::remove(temporaryPath);
-        *error = QStringLiteral("Не удалось переместить готовый .atp в каталог назначения");
+    QSaveFile output(path);
+    if (!output.open(QIODevice::WriteOnly)) {
+        mz_free(zipData);
+        *error = QStringLiteral("Не удалось открыть .atp для записи: %1").arg(output.errorString());
+        return false;
+    }
+    const qint64 written = output.write(static_cast<const char *>(zipData), static_cast<qint64>(zipSize));
+    mz_free(zipData);
+    if (written != static_cast<qint64>(zipSize) || !output.commit()) {
+        *error = QStringLiteral("Не удалось безопасно сохранить готовый .atp: %1").arg(output.errorString());
         return false;
     }
     return true;
