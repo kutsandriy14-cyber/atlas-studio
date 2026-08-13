@@ -86,7 +86,6 @@ if(BUILD_TESTING)
     target_link_libraries(atlas_studio_package_test PRIVATE
         atlas_studio_services
         Qt5::Core
-        Qt5::Test
     )
-    add_test(NAME atlas_studio_package_test COMMAND atlas_studio_package_test -txt -v2)
+    add_test(NAME atlas_studio_package_test COMMAND atlas_studio_package_test)
 endif()

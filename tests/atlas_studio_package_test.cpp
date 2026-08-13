@@ -2,15 +2,24 @@
 #include "packager/atlas_package_builder.h"
 #include "miniz/miniz.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
-#include <QtTest>
+#include <QTextStream>
+
+#include <cstdlib>
 
 namespace {
+
+int fail(const QString &message)
+{
+    QTextStream(stderr) << "FAIL: " << message << Qt::endl;
+    return EXIT_FAILURE;
+}
 
 QByteArray readArchiveFile(const QString &archivePath, const char *entryName)
 {
@@ -31,11 +40,18 @@ QByteArray readArchiveFile(const QString &archivePath, const char *entryName)
     return content;
 }
 
-void writeFile(const QString &path, const QByteArray &content)
+bool writeFile(const QString &path, const QByteArray &content, QString *error)
 {
     QFile file(path);
-    QVERIFY2(file.open(QIODevice::WriteOnly), qPrintable(file.errorString()));
-    QCOMPARE(file.write(content), static_cast<qint64>(content.size()));
+    if (!file.open(QIODevice::WriteOnly)) {
+        *error = QStringLiteral("Не удалось открыть %1: %2").arg(path, file.errorString());
+        return false;
+    }
+    if (file.write(content) != content.size()) {
+        *error = QStringLiteral("Не удалось полностью записать %1: %2").arg(path, file.errorString());
+        return false;
+    }
+    return true;
 }
 
 bool compileProgram(const QJsonObject &project, const QString &source,
@@ -69,18 +85,14 @@ bool encodeProgram(const atlas::runtime::AtlasCodeProgram &program, QByteArray *
 
 } // namespace
 
-class AtlasStudioPackageTest final : public QObject
+int main(int argc, char *argv[])
 {
-    Q_OBJECT
+    QCoreApplication application(argc, argv);
 
-private slots:
-    void buildsMultiFileBinaryPackageWithoutSource();
-};
-
-void AtlasStudioPackageTest::buildsMultiFileBinaryPackageWithoutSource()
-{
     QTemporaryDir temporaryDirectory;
-    QVERIFY2(temporaryDirectory.isValid(), "Temporary project directory must be available");
+    if (!temporaryDirectory.isValid()) {
+        return fail(QStringLiteral("Временный каталог проекта недоступен"));
+    }
 
     const QJsonObject project = {
         {QStringLiteral("formatVersion"), 1},
@@ -95,11 +107,16 @@ void AtlasStudioPackageTest::buildsMultiFileBinaryPackageWithoutSource()
         {QStringLiteral("actions"), QJsonArray{}}
     };
     const QString projectPath = temporaryDirectory.path();
-    writeFile(QDir(projectPath).filePath(QStringLiteral("atlas-project.json")),
-              QJsonDocument(project).toJson(QJsonDocument::Indented));
-    QVERIFY(QDir().mkpath(QDir(projectPath).filePath(QStringLiteral("src"))));
-    QVERIFY(QDir().mkpath(QDir(projectPath).filePath(QStringLiteral("assets"))));
-    QVERIFY(QDir().mkpath(QDir(projectPath).filePath(QStringLiteral("build"))));
+    QString error;
+    if (!writeFile(QDir(projectPath).filePath(QStringLiteral("atlas-project.json")),
+                   QJsonDocument(project).toJson(QJsonDocument::Indented), &error)) {
+        return fail(error);
+    }
+    if (!QDir().mkpath(QDir(projectPath).filePath(QStringLiteral("src"))) ||
+        !QDir().mkpath(QDir(projectPath).filePath(QStringLiteral("assets"))) ||
+        !QDir().mkpath(QDir(projectPath).filePath(QStringLiteral("build")))) {
+        return fail(QStringLiteral("Не удалось подготовить структуру временного проекта"));
+    }
 
     const QString mainSource = QStringLiteral(
         "on launcher.started\n"
@@ -111,23 +128,29 @@ void AtlasStudioPackageTest::buildsMultiFileBinaryPackageWithoutSource()
         "end\n");
     atlas::runtime::AtlasCodeProgram mainProgram;
     atlas::runtime::AtlasCodeProgram gameProgram;
-    QString compilationError;
-    QVERIFY2(compileProgram(project, mainSource, &mainProgram, &compilationError), qPrintable(compilationError));
-    QVERIFY2(compileProgram(project, gameSource, &gameProgram, &compilationError), qPrintable(compilationError));
+    if (!compileProgram(project, mainSource, &mainProgram, &error) ||
+        !compileProgram(project, gameSource, &gameProgram, &error)) {
+        return fail(QStringLiteral("Не удалось скомпилировать Atlas Code: %1").arg(error));
+    }
     QByteArray mainAtbc;
     QByteArray gameAtbc;
-    QVERIFY2(encodeProgram(mainProgram, &mainAtbc, &compilationError), qPrintable(compilationError));
-    QVERIFY2(encodeProgram(gameProgram, &gameAtbc, &compilationError), qPrintable(compilationError));
-    QVERIFY(!mainAtbc.contains(mainSource.toUtf8()));
-    QVERIFY(!gameAtbc.contains(gameSource.toUtf8()));
+    if (!encodeProgram(mainProgram, &mainAtbc, &error) ||
+        !encodeProgram(gameProgram, &gameAtbc, &error)) {
+        return fail(QStringLiteral("Не удалось закодировать ATBC 2: %1").arg(error));
+    }
+    if (mainAtbc.contains(mainSource.toUtf8()) || gameAtbc.contains(gameSource.toUtf8())) {
+        return fail(QStringLiteral("Бинарный ATBC содержит исходный Atlas Code"));
+    }
 
     const QString mainAtbcPath = QDir(projectPath).filePath(QStringLiteral("build/main.atbc"));
     const QString gameAtbcPath = QDir(projectPath).filePath(QStringLiteral("build/game-started.atbc"));
     const QString resourcePath = QDir(projectPath).filePath(QStringLiteral("assets/defaults.json"));
     const QByteArray resource = QByteArrayLiteral("{\"schema\":1,\"theme\":\"dark\"}\n");
-    writeFile(mainAtbcPath, mainAtbc);
-    writeFile(gameAtbcPath, gameAtbc);
-    writeFile(resourcePath, resource);
+    if (!writeFile(mainAtbcPath, mainAtbc, &error) ||
+        !writeFile(gameAtbcPath, gameAtbc, &error) ||
+        !writeFile(resourcePath, resource, &error)) {
+        return fail(error);
+    }
 
     const QString packagePath = QDir(projectPath).filePath(QStringLiteral("build/studio-test.atp"));
     atlas::packager::AtlasPackageRequest request;
@@ -139,27 +162,38 @@ void AtlasStudioPackageTest::buildsMultiFileBinaryPackageWithoutSource()
         {resourcePath, QStringLiteral("assets/defaults.json"), false}
     };
     const atlas::packager::AtlasPackageResult result = atlas::packager::AtlasPackageBuilder::build(request);
-    QVERIFY2(result.success, qPrintable(result.diagnostics.join(QStringLiteral("\n"))));
+    if (!result.success) {
+        return fail(QStringLiteral("Сборщик отклонил корректный многофайловый пакет: %1")
+                        .arg(result.diagnostics.join(QStringLiteral("\n"))));
+    }
 
     const QByteArray manifestBytes = readArchiveFile(packagePath, "manifest.json");
-    QVERIFY(!manifestBytes.isEmpty());
+    if (manifestBytes.isEmpty()) {
+        return fail(QStringLiteral("В архиве отсутствует manifest.json"));
+    }
     QJsonParseError manifestError;
     const QJsonDocument manifestDocument = QJsonDocument::fromJson(manifestBytes, &manifestError);
-    QCOMPARE(manifestError.error, QJsonParseError::NoError);
-    QVERIFY(manifestDocument.isObject());
+    if (manifestError.error != QJsonParseError::NoError || !manifestDocument.isObject()) {
+        return fail(QStringLiteral("manifest.json некорректен: %1").arg(manifestError.errorString()));
+    }
     const QJsonObject manifest = manifestDocument.object();
-    QCOMPARE(manifest.value(QStringLiteral("schemaVersion")).toInt(), 2);
-    QCOMPARE(manifest.value(QStringLiteral("minimumLauncherVersion")).toString(), QStringLiteral("0.5.0"));
-    QCOMPARE(manifest.value(QStringLiteral("entryPoint")).toString(), QStringLiteral("program/main.atbc"));
-    QCOMPARE(manifest.value(QStringLiteral("programs")).toArray().size(), 2);
-    QCOMPARE(manifest.value(QStringLiteral("resources")).toArray().size(), 1);
+    if (manifest.value(QStringLiteral("schemaVersion")).toInt() != 2 ||
+        manifest.value(QStringLiteral("minimumLauncherVersion")).toString() != QLatin1String("0.5.0") ||
+        manifest.value(QStringLiteral("entryPoint")).toString() != QLatin1String("program/main.atbc") ||
+        manifest.value(QStringLiteral("programs")).toArray().size() != 2 ||
+        manifest.value(QStringLiteral("resources")).toArray().size() != 1) {
+        return fail(QStringLiteral("manifest.json не описывает ожидаемый schema 2 многофайловый пакет"));
+    }
+    if (readArchiveFile(packagePath, "program/main.atbc") != mainAtbc ||
+        readArchiveFile(packagePath, "program/game-started.atbc") != gameAtbc ||
+        readArchiveFile(packagePath, "assets/defaults.json") != resource) {
+        return fail(QStringLiteral("Содержимое одного из объявленных файлов не совпадает с исходными байтами"));
+    }
+    if (!readArchiveFile(packagePath, "src/main.atlas").isEmpty() ||
+        !readArchiveFile(packagePath, "src/game-started.atlas").isEmpty()) {
+        return fail(QStringLiteral("Исходный Atlas Code включён в готовый .atp"));
+    }
 
-    QCOMPARE(readArchiveFile(packagePath, "program/main.atbc"), mainAtbc);
-    QCOMPARE(readArchiveFile(packagePath, "program/game-started.atbc"), gameAtbc);
-    QCOMPARE(readArchiveFile(packagePath, "assets/defaults.json"), resource);
-    QVERIFY(readArchiveFile(packagePath, "src/main.atlas").isEmpty());
-    QVERIFY(readArchiveFile(packagePath, "src/game-started.atlas").isEmpty());
+    QTextStream(stdout) << "PASS: Atlas Studio multi-file package regression" << Qt::endl;
+    return EXIT_SUCCESS;
 }
-
-QTEST_MAIN(AtlasStudioPackageTest)
-#include "atlas_studio_package_test.moc"
