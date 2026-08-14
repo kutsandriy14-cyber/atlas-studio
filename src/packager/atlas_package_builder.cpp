@@ -27,7 +27,12 @@ const QSet<QString> kAllowedPermissions = {
     QStringLiteral("servers.control"),
     QStringLiteral("servers.console"),
     QStringLiteral("files.plugin-data"),
-    QStringLiteral("network.metadata")
+    QStringLiteral("network.metadata"),
+    QStringLiteral("ui.feedback"),
+    QStringLiteral("instances.read"),
+    QStringLiteral("content.read"),
+    QStringLiteral("content.refresh"),
+    QStringLiteral("launcher.navigation")
 };
 
 struct PreparedFile {
@@ -202,7 +207,7 @@ AtlasPackageResult AtlasPackageBuilder::build(const AtlasPackageRequest &request
     AtlasPackageResult result;
     const QFileInfo projectInfo(request.projectDirectory);
     if (!projectInfo.exists() || !projectInfo.isDir()) {
-        result.diagnostics.append(QStringLiteral("Каталог проекта Atlas Code недоступен"));
+        result.diagnostics.append(QStringLiteral("Каталог проекта Orvexa Code недоступен"));
         return result;
     }
     if (request.outputPath.trimmed().isEmpty()) {
@@ -273,7 +278,7 @@ AtlasPackageResult AtlasPackageBuilder::build(const AtlasPackageRequest &request
         }
         if (sourceInfo.suffix().compare(QStringLiteral("atlas"), Qt::CaseInsensitive) == 0 ||
             sourceInfo.suffix().compare(QStringLiteral("dll"), Qt::CaseInsensitive) == 0) {
-            result.diagnostics.append(QStringLiteral("Исходники Atlas Code и DLL нельзя включать в .atp: %1").arg(sourceInfo.fileName()));
+            result.diagnostics.append(QStringLiteral("Исходники Orvexa Code и DLL нельзя включать в .atp: %1").arg(sourceInfo.fileName()));
             continue;
         }
         if (requested.program && (!archivePath.startsWith(QStringLiteral("program/")) ||
@@ -369,7 +374,7 @@ AtlasPackageResult AtlasPackageBuilder::build(const AtlasPackageRequest &request
 
     result.success = true;
     result.outputPath = QFileInfo(request.outputPath).absoluteFilePath();
-    result.diagnostics.append(QStringLiteral("Пакет собран: %1 программ и %2 ресурсов. Исходники Atlas Code не включены.")
+    result.diagnostics.append(QStringLiteral("Пакет собран: %1 программ и %2 ресурсов. Исходники Orvexa Code не включены.")
                                   .arg(programCount).arg(files.size() - programCount));
     return result;
 }

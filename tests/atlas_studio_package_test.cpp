@@ -99,10 +99,11 @@ int main(int argc, char *argv[])
         {QStringLiteral("id"), QStringLiteral("org.atlasstudio.test-plugin")},
         {QStringLiteral("name"), QStringLiteral("Studio Test Plugin")},
         {QStringLiteral("version"), QStringLiteral("1.2.3")},
-        {QStringLiteral("publisher"), QStringLiteral("Atlas Studio Test")},
+        {QStringLiteral("publisher"), QStringLiteral("Orvexa Studio Test")},
         {QStringLiteral("description"), QStringLiteral("A multi-file package built by the visual IDE test.")},
-        {QStringLiteral("minimumLauncherVersion"), QStringLiteral("0.5.0")},
-        {QStringLiteral("permissions"), QJsonArray{QStringLiteral("files.plugin-data")}},
+        {QStringLiteral("minimumLauncherVersion"), QStringLiteral("0.7.5")},
+        {QStringLiteral("permissions"), QJsonArray{QStringLiteral("files.plugin-data"),
+                                                   QStringLiteral("ui.feedback")}},
         {QStringLiteral("pages"), QJsonArray{QStringLiteral("studio-test"), QStringLiteral("game-test")}},
         {QStringLiteral("actions"), QJsonArray{}}
     };
@@ -121,6 +122,10 @@ int main(int argc, char *argv[])
     const QString mainSource = QStringLiteral(
         "on launcher.started\n"
         "  call ui.page.create id=studio-test title=\"Studio Test\"\n"
+        "end\n"
+        "\n"
+        "on ui.org.atlasstudio.test-plugin.studio-test.refresh.clicked\n"
+        "  call ui.feedback.notify message=\"Refreshed\" severity=info\n"
         "end\n");
     const QString gameSource = QStringLiteral(
         "on game.started\n"
@@ -130,7 +135,7 @@ int main(int argc, char *argv[])
     atlas::runtime::AtlasCodeProgram gameProgram;
     if (!compileProgram(project, mainSource, &mainProgram, &error) ||
         !compileProgram(project, gameSource, &gameProgram, &error)) {
-        return fail(QStringLiteral("Не удалось скомпилировать Atlas Code: %1").arg(error));
+        return fail(QStringLiteral("Не удалось скомпилировать Orvexa Code: %1").arg(error));
     }
     QByteArray mainAtbc;
     QByteArray gameAtbc;
@@ -139,7 +144,12 @@ int main(int argc, char *argv[])
         return fail(QStringLiteral("Не удалось закодировать ATBC 2: %1").arg(error));
     }
     if (mainAtbc.contains(mainSource.toUtf8()) || gameAtbc.contains(gameSource.toUtf8())) {
-        return fail(QStringLiteral("Бинарный ATBC содержит исходный Atlas Code"));
+        return fail(QStringLiteral("Бинарный ATBC содержит исходный Orvexa Code"));
+    }
+    atlas::runtime::AtlasCodeProgram decodedMainProgram;
+    if (!atlas::runtime::AtlasCodeCompiler::decodeAtbc(mainAtbc, &decodedMainProgram, &error) ||
+        !decodedMainProgram.events.contains(QStringLiteral("ui.org.atlasstudio.test-plugin.studio-test.refresh.clicked"))) {
+        return fail(QStringLiteral("ATBC не сохранил безопасное динамическое UI-событие: %1").arg(error));
     }
 
     const QString mainAtbcPath = QDir(projectPath).filePath(QStringLiteral("build/main.atbc"));
@@ -178,7 +188,7 @@ int main(int argc, char *argv[])
     }
     const QJsonObject manifest = manifestDocument.object();
     if (manifest.value(QStringLiteral("schemaVersion")).toInt() != 2 ||
-        manifest.value(QStringLiteral("minimumLauncherVersion")).toString() != QLatin1String("0.5.0") ||
+        manifest.value(QStringLiteral("minimumLauncherVersion")).toString() != QLatin1String("0.7.5") ||
         manifest.value(QStringLiteral("entryPoint")).toString() != QLatin1String("program/main.atbc") ||
         manifest.value(QStringLiteral("programs")).toArray().size() != 2 ||
         manifest.value(QStringLiteral("resources")).toArray().size() != 1) {
@@ -191,9 +201,9 @@ int main(int argc, char *argv[])
     }
     if (!readArchiveFile(packagePath, "src/main.atlas").isEmpty() ||
         !readArchiveFile(packagePath, "src/game-started.atlas").isEmpty()) {
-        return fail(QStringLiteral("Исходный Atlas Code включён в готовый .atp"));
+        return fail(QStringLiteral("Исходный Orvexa Code включён в готовый .atp"));
     }
 
-    QTextStream(stdout) << "PASS: Atlas Studio multi-file package regression" << Qt::endl;
+    QTextStream(stdout) << "PASS: Orvexa Studio multi-file package regression" << Qt::endl;
     return EXIT_SUCCESS;
 }

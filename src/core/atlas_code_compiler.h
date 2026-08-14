@@ -47,6 +47,7 @@ public:
     static QByteArray encodeAtbc(const AtlasCodeProgram &program, QString *error);
     static bool decodeAtbc(const QByteArray &atbc, AtlasCodeProgram *program, QString *error);
     static QStringList supportedEvents();
+    static bool isSupportedEvent(const QString &eventName);
 
 private:
     static bool parseCall(const QString &line, AtlasCodeCommand *command, QString *error);

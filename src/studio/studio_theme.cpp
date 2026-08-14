@@ -47,7 +47,7 @@ QIcon StudioTheme::icon(const QString &name, int size)
 
 QPixmap StudioTheme::raster(const QString &name, int size)
 {
-    const QString path = QStringLiteral(":/atlas-studio/icons/%1.svg").arg(name);
+    const QString path = QStringLiteral(":/orvexa-studio/icons/%1.svg").arg(name);
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         return QPixmap();

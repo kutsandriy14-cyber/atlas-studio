@@ -33,13 +33,13 @@ int main(int argc, char *argv[])
 
     bool ok = true;
     ok &= require(tree != nullptr, "the project explorer must exist");
-    ok &= require(editor != nullptr, "the Atlas Code editor must exist");
+    ok &= require(editor != nullptr, "the Orvexa Code editor must exist");
     ok &= require(editorTabs != nullptr && editorTabs->count() == 2,
                   "the editor must provide source and package tabs");
     ok &= require(bottomTabs != nullptr && bottomTabs->count() == 2,
                   "the bottom panel must provide problems and reference tabs");
-    ok &= require(reference != nullptr && reference->toPlainText().contains(QStringLiteral("Atlas Code")),
-                  "the embedded Atlas Code reference must be available");
+    ok &= require(reference != nullptr && reference->toPlainText().contains(QStringLiteral("Orvexa Code")),
+                  "the embedded Orvexa Code reference must be available");
     ok &= require(window.minimumSize().width() <= 820 && window.minimumSize().height() <= 560,
                   "the minimum window size must stay usable on small screens");
 

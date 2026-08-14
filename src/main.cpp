@@ -12,7 +12,7 @@
 namespace {
 
 constexpr auto kStudioRepository = "kutsandriy14-cyber/atlas-studio";
-constexpr auto kStudioVersion = "0.2.1";
+constexpr auto kStudioVersion = "0.3.0";
 
 QString studioSettingsDirectory()
 {
@@ -23,7 +23,7 @@ QString studioSettingsDirectory()
 
 void scheduleUpdateCheck()
 {
-    const QString updaterPath = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("AtlasUpdater.exe"));
+    const QString updaterPath = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("OrvexaUpdater.exe"));
     if (!QFileInfo::exists(updaterPath)) return;
 
     QString error;
@@ -38,9 +38,9 @@ void scheduleUpdateCheck()
 int main(int argc, char *argv[])
 {
     QApplication application(argc, argv);
-    QCoreApplication::setOrganizationName(QStringLiteral("Atlas Launcher"));
-    QCoreApplication::setOrganizationDomain(QStringLiteral("atlaslauncher.org"));
-    QCoreApplication::setApplicationName(QStringLiteral("Atlas Studio"));
+    QCoreApplication::setOrganizationName(QStringLiteral("Orvexa"));
+    QCoreApplication::setOrganizationDomain(QStringLiteral("orvexa.local"));
+    QCoreApplication::setApplicationName(QStringLiteral("Orvexa Studio"));
     QCoreApplication::setApplicationVersion(QString::fromLatin1(kStudioVersion));
     application.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     application.setStyleSheet(QStringLiteral(R"(

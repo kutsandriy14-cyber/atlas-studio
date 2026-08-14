@@ -192,7 +192,20 @@ bool commandFromJson(const QJsonValue &value, AtlasCodeCommand *command, QString
 
 QStringList AtlasCodeCompiler::supportedEvents()
 {
-    return {QStringLiteral("launcher.started"), QStringLiteral("game.started"), QStringLiteral("game.exited")};
+    return {QStringLiteral("launcher.started"), QStringLiteral("game.started"), QStringLiteral("game.exited"),
+            QStringLiteral("instance.changed"), QStringLiteral("content.updated")};
+}
+
+bool AtlasCodeCompiler::isSupportedEvent(const QString &eventName)
+{
+    if (supportedEvents().contains(eventName)) {
+        return true;
+    }
+    // Dynamic events can only originate from a declared plugin UI control.
+    // The bounded grammar prevents arbitrary host-dispatch namespaces in ATBC.
+    static const QRegularExpression uiEvent(
+        QStringLiteral("^ui\\.[a-z][a-z0-9.-]{0,63}\\.[a-z][a-z0-9-]{0,63}\\.[a-z][a-z0-9-]{0,63}\\.clicked$"));
+    return uiEvent.match(eventName).hasMatch();
 }
 
 AtlasCodeCompileResult AtlasCodeCompiler::compile(const QString &name, const QString &source)
@@ -222,7 +235,7 @@ AtlasCodeCompileResult AtlasCodeCompiler::compile(const QString &name, const QSt
                 continue;
             }
             const QString eventName = line.mid(3).trimmed();
-            if (!supportedEvents().contains(eventName)) {
+            if (!isSupportedEvent(eventName)) {
                 result.diagnostics.append({lineNumber, QStringLiteral("Неподдерживаемое событие: %1").arg(eventName)});
                 continue;
             }
@@ -320,7 +333,7 @@ QByteArray AtlasCodeCompiler::encodeAtbc(const AtlasCodeProgram &program, QStrin
     QJsonObject eventsObject;
     const QStringList eventNames = program.events.keys();
     for (const QString &eventName : eventNames) {
-        if (!supportedEvents().contains(eventName) || program.events.value(eventName).size() > kMaximumCommandsPerEvent) {
+        if (!isSupportedEvent(eventName) || program.events.value(eventName).size() > kMaximumCommandsPerEvent) {
             if (error) {
                 *error = QStringLiteral("Программа содержит неподдерживаемое событие или слишком много команд");
             }
@@ -479,7 +492,7 @@ bool AtlasCodeCompiler::decodeAtbc(const QByteArray &atbc, AtlasCodeProgram *pro
     }
     const QJsonObject eventsObject = eventsValue.toObject();
     for (auto event = eventsObject.constBegin(); event != eventsObject.constEnd(); ++event) {
-        if (!supportedEvents().contains(event.key()) || !event.value().isArray()) {
+        if (!isSupportedEvent(event.key()) || !event.value().isArray()) {
             if (error) {
                 *error = QStringLiteral("ATBC содержит неподдерживаемое событие");
             }

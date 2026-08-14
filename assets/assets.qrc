@@ -1,6 +1,6 @@
 <RCC>
-    <qresource prefix="/atlas-studio">
-        <file>icons/atlas-mark.svg</file>
+    <qresource prefix="/orvexa-studio">
+        <file>icons/orvexa-mark.svg</file>
         <file>icons/code.svg</file>
         <file>icons/compile.svg</file>
         <file>icons/package.svg</file>

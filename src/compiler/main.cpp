@@ -16,7 +16,12 @@ const QSet<QString> kAllowedPermissions = {
     QStringLiteral("servers.control"),
     QStringLiteral("servers.console"),
     QStringLiteral("files.plugin-data"),
-    QStringLiteral("network.metadata")
+    QStringLiteral("network.metadata"),
+    QStringLiteral("ui.feedback"),
+    QStringLiteral("instances.read"),
+    QStringLiteral("content.read"),
+    QStringLiteral("content.refresh"),
+    QStringLiteral("launcher.navigation")
 };
 
 bool validId(const QString &id)
@@ -34,7 +39,7 @@ bool validVersion(const QString &version)
 
 void printError(const QString &message)
 {
-    QTextStream(stderr) << "AtlasCompiler: " << message << Qt::endl;
+    QTextStream(stderr) << "OrvexaCompiler: " << message << Qt::endl;
 }
 
 QStringList parsePermissions(const QString &input, QString *error)
@@ -65,22 +70,25 @@ QStringList parsePermissions(const QString &input, QString *error)
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    application.setApplicationName(QStringLiteral("AtlasCompiler"));
-    application.setApplicationVersion(QStringLiteral("0.1.0"));
+    application.setApplicationName(QStringLiteral("OrvexaCompiler"));
+    application.setApplicationVersion(QStringLiteral("0.3.0"));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
-        QStringLiteral("Компилирует Atlas Code в проверяемый бинарный формат ATBC 2. "
+        QStringLiteral("Компилирует Orvexa Code в проверяемый бинарный формат ATBC 2. "
                        "Выходной файл не содержит исходный .atlas-код."));
     parser.addHelpOption();
 
     const QCommandLineOption idOption(QStringLiteral("id"), QStringLiteral("Идентификатор плагина (например, org.example.plugin)."), QStringLiteral("id"));
-    const QCommandLineOption nameOption(QStringLiteral("name"), QStringLiteral("Отображаемое имя программы Atlas Code."), QStringLiteral("name"));
+    const QCommandLineOption nameOption(QStringLiteral("name"), QStringLiteral("Отображаемое имя программы Orvexa Code."), QStringLiteral("name"));
     const QCommandLineOption versionOption(QStringLiteral("version"), QStringLiteral("Версия плагина в SemVer-формате."), QStringLiteral("version"));
     const QCommandLineOption publisherOption(QStringLiteral("publisher"), QStringLiteral("Автор или издатель плагина."), QStringLiteral("publisher"));
     const QCommandLineOption descriptionOption(QStringLiteral("description"), QStringLiteral("Краткое описание плагина."), QStringLiteral("description"));
-    const QCommandLineOption permissionsOption(QStringLiteral("permissions"), QStringLiteral("Разрешения через запятую: servers.control, servers.console, files.plugin-data, network.metadata."), QStringLiteral("list"), QString());
-    const QCommandLineOption minimumLauncherOption(QStringLiteral("min-launcher"), QStringLiteral("Минимальная версия Atlas Launcher в SemVer-формате."), QStringLiteral("version"));
+    const QCommandLineOption permissionsOption(
+        QStringLiteral("permissions"),
+        QStringLiteral("Разрешения через запятую: servers.control, servers.console, files.plugin-data, network.metadata, ui.feedback, instances.read, content.read, content.refresh, launcher.navigation."),
+        QStringLiteral("list"), QString());
+    const QCommandLineOption minimumLauncherOption(QStringLiteral("min-launcher"), QStringLiteral("Минимальная версия Orvexa Launcher в SemVer-формате."), QStringLiteral("version"));
 
     parser.addOption(idOption);
     parser.addOption(nameOption);
@@ -89,7 +97,7 @@ int main(int argc, char *argv[])
     parser.addOption(descriptionOption);
     parser.addOption(permissionsOption);
     parser.addOption(minimumLauncherOption);
-    parser.addPositionalArgument(QStringLiteral("input.atlas"), QStringLiteral("Исходный файл Atlas Code."));
+    parser.addPositionalArgument(QStringLiteral("input.atlas"), QStringLiteral("Исходный файл Orvexa Code."));
     parser.addPositionalArgument(QStringLiteral("output.atbc"), QStringLiteral("Выходной бинарный файл ATBC 2."));
     parser.process(application);
 

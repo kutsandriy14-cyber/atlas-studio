@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(AtlasStudio VERSION 0.2.1 LANGUAGES C CXX)
+project(OrvexaStudio VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,13 +52,13 @@ target_link_libraries(atlas_studio_ui PUBLIC
     Qt5::Svg
 )
 
-add_executable(AtlasStudio WIN32
+add_executable(OrvexaStudio WIN32
     src/main.cpp
     src/studio/atlas_studio_window.cpp
     src/studio/atlas_studio_window.h
     assets/assets.qrc
 )
-target_link_libraries(AtlasStudio PRIVATE
+target_link_libraries(OrvexaStudio PRIVATE
     atlas_studio_services
     atlas_studio_ui
     Qt5::Core
@@ -67,36 +67,36 @@ target_link_libraries(AtlasStudio PRIVATE
     Qt5::Widgets
 )
 
-add_executable(AtlasCompiler
+add_executable(OrvexaCompiler
     src/compiler/main.cpp
 )
-target_link_libraries(AtlasCompiler PRIVATE
+target_link_libraries(OrvexaCompiler PRIVATE
     atlas_studio_services
     Qt5::Core
 )
 
-add_executable(AtlasUpdater WIN32
+add_executable(OrvexaUpdater WIN32
     src/updater/main.cpp
 )
-target_include_directories(AtlasUpdater PRIVATE
+target_include_directories(OrvexaUpdater PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_link_libraries(AtlasUpdater PRIVATE
+target_link_libraries(OrvexaUpdater PRIVATE
     atlas_studio_services
     Qt5::Core
     Qt5::Network
     Qt5::Widgets
 )
 
-install(TARGETS AtlasStudio AtlasCompiler AtlasUpdater
+install(TARGETS OrvexaStudio OrvexaCompiler OrvexaUpdater
     RUNTIME DESTINATION .
 )
 install(DIRECTORY examples/ DESTINATION examples OPTIONAL)
 install(FILES README.md LICENSE DESTINATION . OPTIONAL)
 
 if(BUILD_TESTING)
-    add_test(NAME atlas_compiler_help COMMAND $<TARGET_FILE:AtlasCompiler> --help)
-    add_test(NAME atlas_updater_help COMMAND $<TARGET_FILE:AtlasUpdater> --help)
+    add_test(NAME atlas_compiler_help COMMAND $<TARGET_FILE:OrvexaCompiler> --help)
+    add_test(NAME atlas_updater_help COMMAND $<TARGET_FILE:OrvexaUpdater> --help)
     if(UNIX)
         set_tests_properties(atlas_compiler_help atlas_updater_help PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen"

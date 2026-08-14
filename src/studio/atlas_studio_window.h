@@ -101,6 +101,11 @@ private:
     QCheckBox *m_networkPermission = nullptr;
     QCheckBox *m_serversControlPermission = nullptr;
     QCheckBox *m_serversConsolePermission = nullptr;
+    QCheckBox *m_uiFeedbackPermission = nullptr;
+    QCheckBox *m_instancesReadPermission = nullptr;
+    QCheckBox *m_contentReadPermission = nullptr;
+    QCheckBox *m_contentRefreshPermission = nullptr;
+    QCheckBox *m_launcherNavigatePermission = nullptr;
     QPushButton *m_compileButton = nullptr;
     QPushButton *m_packageButton = nullptr;
     QPushButton *m_installButton = nullptr;

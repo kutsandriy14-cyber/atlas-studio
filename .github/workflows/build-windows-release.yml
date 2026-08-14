@@ -1,4 +1,4 @@
-name: Build Atlas Studio for Windows
+name: Build Orvexa Studio for Windows
 
 on:
   push:
@@ -49,9 +49,9 @@ jobs:
           cmake -S . -B build-win64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$qtRoot"
           cmake --build build-win64 --parallel
           foreach ($binary in @(
-              'AtlasStudio.exe',
-              'AtlasCompiler.exe',
-              'AtlasUpdater.exe',
+              'OrvexaStudio.exe',
+              'OrvexaCompiler.exe',
+              'OrvexaUpdater.exe',
               'atlas_studio_package_test.exe',
               'atlas_studio_ui_test.exe',
               'atlas_studio_submit_test.exe')) {
@@ -77,11 +77,11 @@ jobs:
             'C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin'
           )
           $mingwBin = $candidates | Where-Object { Test-Path (Join-Path $_ 'g++.exe') } | Select-Object -First 1
-          $deploy = 'dist\AtlasStudio-win64'
+          $deploy = 'dist\OrvexaStudio-win64'
           if (Test-Path $deploy) { Remove-Item $deploy -Recurse -Force }
           New-Item -ItemType Directory -Path $deploy -Force | Out-Null
 
-          Copy-Item 'build-win64\AtlasStudio.exe', 'build-win64\AtlasCompiler.exe', 'build-win64\AtlasUpdater.exe' -Destination $deploy -Force
+          Copy-Item 'build-win64\OrvexaStudio.exe', 'build-win64\OrvexaCompiler.exe', 'build-win64\OrvexaUpdater.exe' -Destination $deploy -Force
           foreach ($file in @('README.md', 'LICENSE')) {
             if (Test-Path $file) { Copy-Item $file $deploy -Force }
           }
@@ -105,11 +105,11 @@ jobs:
             Copy-Item $source $deploy -Force
           }
 
-          foreach ($required in @('AtlasStudio.exe', 'AtlasCompiler.exe', 'AtlasUpdater.exe', 'Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Svg.dll', 'Qt5Network.dll', 'Qt5Widgets.dll', 'plugins\platforms\qwindows.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
+          foreach ($required in @('OrvexaStudio.exe', 'OrvexaCompiler.exe', 'OrvexaUpdater.exe', 'Qt5Core.dll', 'Qt5Gui.dll', 'Qt5Svg.dll', 'Qt5Network.dll', 'Qt5Widgets.dll', 'plugins\platforms\qwindows.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
             if (-not (Test-Path (Join-Path $deploy $required))) { throw "Portable runtime missing: $required" }
           }
 
-          $archive = 'dist\AtlasStudio-0.2.1-win64-portable.zip'
+          $archive = 'dist\OrvexaStudio-0.3.0-win64-portable.zip'
           if (Test-Path $archive) { Remove-Item $archive -Force }
           Compress-Archive -Path "$deploy\*" -DestinationPath $archive -CompressionLevel Optimal
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
@@ -119,8 +119,8 @@ jobs:
       - name: Upload portable archive
         uses: actions/upload-artifact@v4
         with:
-          name: atlas-studio-0.2.1-windows
+          name: orvexa-studio-0.3.0-windows
           if-no-files-found: error
           path: |
-            dist/AtlasStudio-0.2.1-win64-portable.zip
+            dist/OrvexaStudio-0.3.0-win64-portable.zip
             dist/SHA256SUMS.txt

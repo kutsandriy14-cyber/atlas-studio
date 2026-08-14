@@ -57,9 +57,15 @@ QString defaultSource()
 {
     return QStringLiteral(
         "on launcher.started\n"
-        "  call ui.page.create id=welcome title=\"Hello Atlas\"\n"
-        "  call ui.control.add id=welcome type=label text=\"Плагин Atlas Code собран Atlas Studio.\"\n"
-        "  call ui.control.add id=welcome type=text text=\"Исходники не попадут в готовый пакет.\"\n"
+        "  call ui.page.create id=welcome title=\"Статус Orvexa\" icon=folder\n"
+        "  call ui.control.add id=welcome controlId=content-state type=label text=\"Сводка модов доступна через Менеджер контента.\"\n"
+        "  call ui.control.add id=welcome controlId=refresh-mods type=button text=\"Обновить сводку модов\"\n"
+        "  call content.summary category=mods\n"
+        "  call ui.feedback.notify message=\"Плагин Orvexa готов.\" severity=success\n"
+        "end\n"
+        "\n"
+        "on content.updated\n"
+        "  call ui.control.update id=welcome controlId=content-state text=\"Сводка контента обновлена.\"\n"
         "end\n");
 }
 
@@ -267,10 +273,10 @@ void AtlasStudioWindow::setupUi()
     commandLayout->setSpacing(8);
     auto *brandIcon = new QLabel(commandBar);
     brandIcon->setObjectName(QStringLiteral("brandIcon"));
-    brandIcon->setPixmap(StudioTheme::icon(QStringLiteral("atlas-mark"), 22).pixmap(QSize(22, 22)));
-    auto *brand = new QLabel(tr("ATLAS STUDIO"), commandBar);
+    brandIcon->setPixmap(StudioTheme::icon(QStringLiteral("orvexa-mark"), 22).pixmap(QSize(22, 22)));
+    auto *brand = new QLabel(tr("ORVEXA STUDIO"), commandBar);
     brand->setObjectName(QStringLiteral("studioBrand"));
-    auto *projectCaption = new QLabel(tr("Создавайте безопасные расширения Atlas Code"), commandBar);
+    auto *projectCaption = new QLabel(tr("Создавайте безопасные расширения Orvexa Code"), commandBar);
     projectCaption->setObjectName(QStringLiteral("projectCaption"));
     projectCaption->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_compileButton = new QPushButton(StudioTheme::icon(QStringLiteral("compile"), 14), tr("Скомпилировать"), commandBar);
@@ -302,7 +308,7 @@ void AtlasStudioWindow::setupUi()
         StudioTheme::icon(QStringLiteral("module"), 12).pixmap(QSize(12, 12)).toImage().isNull() ? QString() : QString()));
     explorerTitle->setPixmap(StudioTheme::icon(QStringLiteral("module"), 12).pixmap(QSize(12, 12)));
     explorerTitle->setText(tr("ПРОВОДНИК"));
-    auto *explorerHint = new QLabel(tr("Проект Atlas Code"), explorer);
+    auto *explorerHint = new QLabel(tr("Проект Orvexa Code"), explorer);
     explorerHint->setObjectName(QStringLiteral("explorerHint"));
     explorerHint->setWordWrap(true);
     m_projectTree = new QTreeWidget(explorer);
@@ -337,7 +343,7 @@ void AtlasStudioWindow::setupUi()
     sourceLayout->setSpacing(0);
     m_sourceEdit = new CodeEditor(sourceTab);
     m_sourceEdit->setObjectName(QStringLiteral("atlasCodeEditor"));
-    m_sourceEdit->setPlaceholderText(tr("Введите Atlas Code…"));
+    m_sourceEdit->setPlaceholderText(tr("Введите Orvexa Code…"));
     m_sourceEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     m_sourceEdit->setTabStopDistance(24.0);
     m_highlighter = new AtlasCodeHighlighter(m_sourceEdit->document());
@@ -366,7 +372,7 @@ void AtlasStudioWindow::setupUi()
     m_authorEdit->setPlaceholderText(tr("Ваше имя или команда"));
     m_homepageEdit = new QLineEdit(metadataBox);
     m_homepageEdit->setPlaceholderText(tr("https://… (необязательно)"));
-    m_minimumLauncherEdit = new QLineEdit(QStringLiteral("0.6.0"), metadataBox);
+    m_minimumLauncherEdit = new QLineEdit(QStringLiteral("0.7.5"), metadataBox);
     m_pagesEdit = new QLineEdit(metadataBox);
     m_pagesEdit->setPlaceholderText(tr("welcome, settings"));
     m_pagesEdit->setToolTip(tr("Уникальные ID вкладок через запятую. Например: welcome, settings."));
@@ -407,13 +413,28 @@ void AtlasStudioWindow::setupUi()
     m_serversControlPermission->setProperty("permission", QStringLiteral("servers.control"));
     m_serversConsolePermission = new QCheckBox(tr("Консоль сервера Minecraft"), permissionsBox);
     m_serversConsolePermission->setProperty("permission", QStringLiteral("servers.console"));
-    auto *permissionHint = new QLabel(tr("Разрешения не дают Atlas Code доступа к DLL, памяти процесса или произвольным файлам. Пользователь видит и подтверждает их перед установкой пакета."), permissionsBox);
+    m_uiFeedbackPermission = new QCheckBox(tr("Уведомления и сообщения внутри Launcher"), permissionsBox);
+    m_uiFeedbackPermission->setProperty("permission", QStringLiteral("ui.feedback"));
+    m_instancesReadPermission = new QCheckBox(tr("Метаданные игровых профилей — без локальных путей"), permissionsBox);
+    m_instancesReadPermission->setProperty("permission", QStringLiteral("instances.read"));
+    m_contentReadPermission = new QCheckBox(tr("Сводка модов, миров, ресурсов и шейдеров — без списка файлов"), permissionsBox);
+    m_contentReadPermission->setProperty("permission", QStringLiteral("content.read"));
+    m_contentRefreshPermission = new QCheckBox(tr("Запрос обновления сводки контента"), permissionsBox);
+    m_contentRefreshPermission->setProperty("permission", QStringLiteral("content.refresh"));
+    m_launcherNavigatePermission = new QCheckBox(tr("Переход к существующим разделам Launcher"), permissionsBox);
+    m_launcherNavigatePermission->setProperty("permission", QStringLiteral("launcher.navigation"));
+    auto *permissionHint = new QLabel(tr("Разрешения не дают Orvexa Code доступа к DLL, памяти процесса или произвольным файлам. Пользователь видит и подтверждает их перед установкой пакета."), permissionsBox);
     permissionHint->setObjectName(QStringLiteral("permissionHint"));
     permissionHint->setWordWrap(true);
     permissionsLayout->addWidget(m_storagePermission);
     permissionsLayout->addWidget(m_networkPermission);
     permissionsLayout->addWidget(m_serversControlPermission);
     permissionsLayout->addWidget(m_serversConsolePermission);
+    permissionsLayout->addWidget(m_uiFeedbackPermission);
+    permissionsLayout->addWidget(m_instancesReadPermission);
+    permissionsLayout->addWidget(m_contentReadPermission);
+    permissionsLayout->addWidget(m_contentRefreshPermission);
+    permissionsLayout->addWidget(m_launcherNavigatePermission);
     permissionsLayout->addWidget(permissionHint);
     metadataLayout->addWidget(permissionsBox);
     metadataLayout->addStretch(1);
@@ -433,7 +454,7 @@ void AtlasStudioWindow::setupUi()
     m_diagnosticsEdit = new QTextEdit(m_bottomTabs);
     m_diagnosticsEdit->setObjectName(QStringLiteral("problemsOutput"));
     m_diagnosticsEdit->setReadOnly(true);
-    m_diagnosticsEdit->setHtml(tr("<span style='color:#a0a0a0'>Создайте или откройте проект Atlas Code.</span>"));
+    m_diagnosticsEdit->setHtml(tr("<span style='color:#a0a0a0'>Создайте или откройте проект Orvexa Code.</span>"));
     m_bottomTabs->addTab(m_diagnosticsEdit, QStringLiteral(" "));
     m_problemsBadge = new QLabel(m_bottomTabs);
     m_problemsBadge->setObjectName(QStringLiteral("problemsBadge"));
@@ -441,18 +462,18 @@ void AtlasStudioWindow::setupUi()
     auto *reference = new QTextEdit(m_bottomTabs);
     reference->setObjectName(QStringLiteral("atlasCodeReference"));
     reference->setReadOnly(true);
-    reference->setHtml(tr("<h3>Atlas Code: быстрый старт</h3>"
+    reference->setHtml(tr("<h3>Orvexa Code: быстрый старт</h3>"
         "<p><b>1.</b> Создайте проект. Основной код находится в <code>src/main.atlas</code>.</p>"
         "<p><b>2.</b> Опишите действие через блок события:</p>"
         "<pre>on launcher.started\n  call ui.page.create id=welcome title=\"Привет\"\n  call ui.control.add id=welcome type=label text=\"Мой плагин\"\nend</pre>"
         "<p><b>3.</b> Во вкладке «Пакет и разрешения» заполните ID, описание, список файлов и только нужные разрешения.</p>"
         "<p><b>4.</b> Нажмите «Скомпилировать», затем «Собрать .atp». В архив попадут <code>manifest.json</code>, ATBC и явно объявленные ресурсы; исходные <code>.atlas</code> не включаются.</p>"
-        "<p><b>Безопасность.</b> Atlas Code не выполняет произвольный C++, не загружает DLL и не получает доступ к файловой системе без объявленного разрешения.</p>"));
+        "<p><b>Безопасность.</b> Orvexa Code не выполняет произвольный C++, не загружает DLL и не получает доступ к файловой системе без объявленного разрешения.</p>"));
     m_bottomTabs->addTab(reference, QStringLiteral(" "));
     auto *referenceBadge = new QLabel(m_bottomTabs);
     referenceBadge->setObjectName(QStringLiteral("referenceBadge"));
     referenceBadge->setPixmap(StudioTheme::icon(QStringLiteral("book"), 14).pixmap(QSize(14, 14)));
-    referenceBadge->setToolTip(tr("Справочник Atlas Code"));
+    referenceBadge->setToolTip(tr("Справочник Orvexa Code"));
     m_bottomTabs->tabBar()->setTabButton(1, QTabBar::LeftSide, referenceBadge);
     workbench->addWidget(m_bottomTabs);
     workbench->setStretchFactor(0, 1);
@@ -493,7 +514,9 @@ void AtlasStudioWindow::setupUi()
     connect(m_categoryCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, changed);
     connect(m_descriptionEdit, &QPlainTextEdit::textChanged, this, changed);
     connect(m_sourceEdit, &QPlainTextEdit::textChanged, this, changed);
-    for (QCheckBox *box : {m_storagePermission, m_networkPermission, m_serversControlPermission, m_serversConsolePermission}) {
+    for (QCheckBox *box : {m_storagePermission, m_networkPermission, m_serversControlPermission, m_serversConsolePermission,
+                            m_uiFeedbackPermission, m_instancesReadPermission, m_contentReadPermission,
+                            m_contentRefreshPermission, m_launcherNavigatePermission}) {
         connect(box, &QCheckBox::toggled, this, changed);
     }
     rebuildProjectTree();
@@ -517,14 +540,14 @@ void AtlasStudioWindow::setupActions()
     buildMenu->addAction(tr("Отправить в каталог…"), this, &AtlasStudioWindow::submitToCatalog);
 
     QMenu *helpMenu = menuBar()->addMenu(tr("&Справка"));
-    helpMenu->addAction(tr("Справочник Atlas Code"), this, &AtlasStudioWindow::showAtlasCodeReference, QKeySequence::HelpContents);
-    statusBar()->showMessage(tr("Готово. Создайте проект или откройте существующий Atlas Code проект."));
+    helpMenu->addAction(tr("Справочник Orvexa Code"), this, &AtlasStudioWindow::showAtlasCodeReference, QKeySequence::HelpContents);
+    statusBar()->showMessage(tr("Готово. Создайте проект или откройте существующий Orvexa Code проект."));
 }
 
 void AtlasStudioWindow::submitToCatalog()
 {
     if (m_projectDirectory.isEmpty()) {
-        QMessageBox::information(this, tr("Отправка в каталог"), tr("Сначала откройте проект плагина в Atlas Studio."));
+        QMessageBox::information(this, tr("Отправка в каталог"), tr("Сначала откройте проект плагина в Orvexa Studio."));
         return;
     }
     const QString package = packagePath();
@@ -588,7 +611,7 @@ void AtlasStudioWindow::submitToCatalog()
         "**SHA-256 пакета .atp:**\n\n`%6`\n\n"
         "Пакет `plugin.atp` вместе с исходным кодом (`src/*.atlas` и `atlas-project.json`)"
         " автор обязан положить в `submissions/%4/%7/` этого репозитория перед рассмотрением заявки.\n\n"
-        "*Заявка отправлена из Atlas Studio.*"
+        "*Заявка отправлена из Orvexa Studio.*"
     ).arg(pluginName, pluginVersion, pluginId, authorName.isEmpty() ? QStringLiteral("не указан") : authorName,
           description.isEmpty() ? QStringLiteral("без описания") : description, sha256,
           pluginId.replace(QStringLiteral("."), QStringLiteral("/")));
@@ -655,13 +678,13 @@ void AtlasStudioWindow::createProject()
     m_versionEdit->setText(QStringLiteral("1.0.0"));
     m_authorEdit->setText(tr("Автор"));
     m_homepageEdit->clear();
-    m_minimumLauncherEdit->setText(QStringLiteral("0.4.0"));
+    m_minimumLauncherEdit->setText(QStringLiteral("0.7.5"));
     m_pagesEdit->setText(QStringLiteral("welcome"));
     m_actionsEdit->clear();
     m_packageFilesEdit->setPlainText(QStringLiteral("src/main.atlas -> program/main.atbc"));
-    m_descriptionEdit->setPlainText(tr("Первый плагин Atlas Code."));
+    m_descriptionEdit->setPlainText(tr("Первый плагин Orvexa Code."));
     m_categoryCombo->setCurrentIndex(0);
-    applyPermissions({});
+    applyPermissions({QStringLiteral("ui.feedback"), QStringLiteral("content.read")});
     m_sourceEdit->setPlainText(defaultSource());
     updateProblemsBadge(0);
     m_modified = true;
@@ -677,7 +700,7 @@ void AtlasStudioWindow::openProject()
     if (!confirmDiscardChanges()) {
         return;
     }
-    const QString directory = QFileDialog::getExistingDirectory(this, tr("Открыть каталог Atlas Code"));
+    const QString directory = QFileDialog::getExistingDirectory(this, tr("Открыть каталог Orvexa Code"));
     if (directory.isEmpty()) {
         return;
     }
@@ -741,7 +764,7 @@ bool AtlasStudioWindow::declaredPackageFiles(QVector<ProjectPackageFile> *files,
         const bool program = sourcePath.endsWith(QStringLiteral(".atlas"), Qt::CaseInsensitive);
         if (program) {
             if (!archivePath.startsWith(QStringLiteral("program/")) || !archivePath.endsWith(QStringLiteral(".atbc"), Qt::CaseInsensitive)) {
-                diagnostics->append(tr("Строка файлов %1: Atlas Code должен собираться в program/*.atbc.").arg(index + 1));
+                diagnostics->append(tr("Строка файлов %1: Orvexa Code должен собираться в program/*.atbc.").arg(index + 1));
                 continue;
             }
             ++programCount;
@@ -753,10 +776,10 @@ bool AtlasStudioWindow::declaredPackageFiles(QVector<ProjectPackageFile> *files,
         files->append({sourcePath, archivePath, program});
     }
     if (programCount == 0) {
-        diagnostics->append(tr("В пакете должна быть хотя бы одна программа Atlas Code (*.atlas -> program/*.atbc)."));
+        diagnostics->append(tr("В пакете должна быть хотя бы одна программа Orvexa Code (*.atlas -> program/*.atbc)."));
     }
     if (programCount > 32) {
-        diagnostics->append(tr("В одном .atp допускается не более 32 программ Atlas Code."));
+        diagnostics->append(tr("В одном .atp допускается не более 32 программ Orvexa Code."));
     }
     return diagnostics->isEmpty();
 }
@@ -800,7 +823,7 @@ bool AtlasStudioWindow::validateProject(QStringList *diagnostics) const
     QVector<ProjectPackageFile> files;
     declaredPackageFiles(&files, diagnostics);
     if (m_sourceEdit->toPlainText().trimmed().isEmpty()) {
-        diagnostics->append(tr("Исходный код Atlas Code пуст."));
+        diagnostics->append(tr("Исходный код Orvexa Code пуст."));
     }
     return diagnostics->isEmpty();
 }
@@ -938,7 +961,7 @@ void AtlasStudioWindow::installPackage()
         const QFileInfo packageFile(packagePath());
         QDesktopServices::openUrl(QUrl::fromLocalFile(packageFile.absolutePath()));
         QMessageBox::information(this, tr("Установите пакет в Launcher"),
-            tr("Папка с готовым пакетом открыта:\n%1\n\nВ Atlas Launcher откройте «Плагины → Установить .atp» и выберите файл %2.")
+            tr("Папка с готовым пакетом открыта:\n%1\n\nВ Orvexa Launcher откройте «Плагины → Установить .atp» и выберите файл %2.")
                 .arg(QDir::toNativeSeparators(packageFile.absolutePath()), packageFile.fileName()));
     }
 }
@@ -1024,7 +1047,7 @@ void AtlasStudioWindow::showAtlasCodeReference()
     if (m_bottomTabs) {
         m_bottomTabs->setCurrentIndex(1);
     }
-    animateStatusMessage(tr("Открыт встроенный справочник Atlas Code."), StudioTheme::accent());;
+    animateStatusMessage(tr("Открыт встроенный справочник Orvexa Code."), StudioTheme::accent());;
 }
 
 void AtlasStudioWindow::setProjectDirectory(const QString &directory)
@@ -1133,7 +1156,9 @@ QString AtlasStudioWindow::packagePath() const { return QDir(m_projectDirectory)
 QStringList AtlasStudioWindow::selectedPermissions() const
 {
     QStringList result;
-    for (QCheckBox *box : {m_storagePermission, m_networkPermission, m_serversControlPermission, m_serversConsolePermission}) {
+    for (QCheckBox *box : {m_storagePermission, m_networkPermission, m_serversControlPermission, m_serversConsolePermission,
+                            m_uiFeedbackPermission, m_instancesReadPermission, m_contentReadPermission,
+                            m_contentRefreshPermission, m_launcherNavigatePermission}) {
         if (box->isChecked()) {
             result.append(box->property("permission").toString());
         }
@@ -1143,7 +1168,9 @@ QStringList AtlasStudioWindow::selectedPermissions() const
 
 void AtlasStudioWindow::applyPermissions(const QStringList &permissions)
 {
-    for (QCheckBox *box : {m_storagePermission, m_networkPermission, m_serversControlPermission, m_serversConsolePermission}) {
+    for (QCheckBox *box : {m_storagePermission, m_networkPermission, m_serversControlPermission, m_serversConsolePermission,
+                            m_uiFeedbackPermission, m_instancesReadPermission, m_contentReadPermission,
+                            m_contentRefreshPermission, m_launcherNavigatePermission}) {
         box->setChecked(permissions.contains(box->property("permission").toString()));
     }
 }
@@ -1214,7 +1241,7 @@ void AtlasStudioWindow::animateStatusMessage(const QString &message, const QColo
 void AtlasStudioWindow::updateWindowTitle()
 {
     const QString name = m_projectDirectory.isEmpty() ? tr("без проекта") : QFileInfo(m_projectDirectory).fileName();
-    setWindowTitle(QStringLiteral("%1Atlas Studio — %2").arg(m_modified ? QStringLiteral("* ") : QString(), name));
+    setWindowTitle(QStringLiteral("%1Orvexa Studio — %2").arg(m_modified ? QStringLiteral("* ") : QString(), name));
 }
 
 } // namespace atlas::studio

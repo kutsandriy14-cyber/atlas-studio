@@ -32,7 +32,7 @@ QAction *findMenuAction(QMenuBar *menuBar, const QString &menuFragment, const QS
 int main(int argc, char *argv[])
 {
     QApplication application(argc, argv);
-    application.setApplicationName(QStringLiteral("Atlas Studio Submit Test"));
+    application.setApplicationName(QStringLiteral("Orvexa Studio Submit Test"));
 
     atlas::studio::AtlasStudioWindow window;
     window.resize(1024, 700);

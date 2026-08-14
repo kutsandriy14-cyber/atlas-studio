@@ -17,7 +17,7 @@
 namespace atlas {
 namespace {
 constexpr auto kGitHubApiVersion = "2026-03-10";
-constexpr auto kUpdateUserAgent = "AtlasStudio-Updater/0.3";
+constexpr auto kUpdateUserAgent = "OrvexaStudio-Updater/0.3.0";
 constexpr int kRequestTimeoutMs = 60000;
 
 QString normalizedVersion(QString value)
@@ -29,7 +29,7 @@ QString normalizedVersion(QString value)
 
 QString updaterExecutablePath()
 {
-    return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("AtlasUpdater.exe"));
+    return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("OrvexaUpdater.exe"));
 }
 }
 
@@ -101,7 +101,7 @@ bool UpdateService::launchCheckProcess(const QString &repository, const QString 
 {
     const QString executable = updaterExecutablePath();
     if (!QFileInfo::exists(executable)) {
-        if (error) *error = QStringLiteral("Не найден AtlasUpdater.exe рядом с IDE.");
+        if (error) *error = QStringLiteral("Не найден OrvexaUpdater.exe рядом с IDE.");
         return false;
     }
     QStringList arguments;
@@ -112,7 +112,7 @@ bool UpdateService::launchCheckProcess(const QString &repository, const QString 
               << QStringLiteral("--settings-dir") << QDir::cleanPath(settingsDirectory)
               << QStringLiteral("--parent-pid") << QString::number(QCoreApplication::applicationPid());
     if (!QProcess::startDetached(executable, arguments, QCoreApplication::applicationDirPath())) {
-        if (error) *error = QStringLiteral("Не удалось запустить AtlasUpdater.exe.");
+        if (error) *error = QStringLiteral("Не удалось запустить OrvexaUpdater.exe.");
         return false;
     }
     return true;
@@ -123,7 +123,7 @@ bool UpdateService::launchApplyProcess(const QString &archivePath, const QString
 {
     const QString executable = updaterExecutablePath();
     if (!QFileInfo::exists(executable)) {
-        if (error) *error = QStringLiteral("Не найден AtlasUpdater.exe рядом с IDE.");
+        if (error) *error = QStringLiteral("Не найден OrvexaUpdater.exe рядом с IDE.");
         return false;
     }
     QStringList arguments;
