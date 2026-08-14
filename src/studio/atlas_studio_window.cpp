@@ -2,10 +2,13 @@
 
 #include "core/atlas_code_compiler.h"
 #include "packager/atlas_package_builder.h"
+#include "studio/atlas_code_highlighter.h"
+#include "studio/studio_theme.h"
 
 #include <QAction>
 #include <QCheckBox>
 #include <QCloseEvent>
+#include <QPropertyAnimation>
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QDialogButtonBox>
@@ -262,17 +265,21 @@ void AtlasStudioWindow::setupUi()
     auto *commandLayout = new QHBoxLayout(commandBar);
     commandLayout->setContentsMargins(14, 7, 14, 7);
     commandLayout->setSpacing(8);
+    auto *brandIcon = new QLabel(commandBar);
+    brandIcon->setObjectName(QStringLiteral("brandIcon"));
+    brandIcon->setPixmap(StudioTheme::icon(QStringLiteral("atlas-mark"), 22).pixmap(QSize(22, 22)));
     auto *brand = new QLabel(tr("ATLAS STUDIO"), commandBar);
     brand->setObjectName(QStringLiteral("studioBrand"));
     auto *projectCaption = new QLabel(tr("Создавайте безопасные расширения Atlas Code"), commandBar);
     projectCaption->setObjectName(QStringLiteral("projectCaption"));
     projectCaption->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_compileButton = new QPushButton(tr("Скомпилировать"), commandBar);
+    m_compileButton = new QPushButton(StudioTheme::icon(QStringLiteral("compile"), 14), tr("Скомпилировать"), commandBar);
     m_compileButton->setObjectName(QStringLiteral("compileButton"));
-    m_packageButton = new QPushButton(tr("Собрать .atp"), commandBar);
+    m_packageButton = new QPushButton(StudioTheme::icon(QStringLiteral("package"), 14), tr("Собрать .atp"), commandBar);
     m_packageButton->setObjectName(QStringLiteral("packageButton"));
-    m_installButton = new QPushButton(tr("Показать пакет"), commandBar);
+    m_installButton = new QPushButton(StudioTheme::icon(QStringLiteral("upload"), 14), tr("Показать пакет"), commandBar);
     m_installButton->setObjectName(QStringLiteral("showPackageButton"));
+    commandLayout->addWidget(brandIcon);
     commandLayout->addWidget(brand);
     commandLayout->addWidget(projectCaption, 1);
     commandLayout->addWidget(m_compileButton);
@@ -289,8 +296,12 @@ void AtlasStudioWindow::setupUi()
     auto *explorerLayout = new QVBoxLayout(explorer);
     explorerLayout->setContentsMargins(9, 10, 8, 8);
     explorerLayout->setSpacing(7);
-    auto *explorerTitle = new QLabel(tr("ПРОВОДНИК"), explorer);
+    auto *explorerTitle = new QLabel(explorer);
     explorerTitle->setObjectName(QStringLiteral("explorerTitle"));
+    explorerTitle->setText(QStringLiteral("%1 %2").arg(
+        StudioTheme::icon(QStringLiteral("module"), 12).pixmap(QSize(12, 12)).toImage().isNull() ? QString() : QString()));
+    explorerTitle->setPixmap(StudioTheme::icon(QStringLiteral("module"), 12).pixmap(QSize(12, 12)));
+    explorerTitle->setText(tr("ПРОВОДНИК"));
     auto *explorerHint = new QLabel(tr("Проект Atlas Code"), explorer);
     explorerHint->setObjectName(QStringLiteral("explorerHint"));
     explorerHint->setWordWrap(true);
@@ -298,10 +309,11 @@ void AtlasStudioWindow::setupUi()
     m_projectTree->setObjectName(QStringLiteral("projectTree"));
     m_projectTree->setHeaderHidden(true);
     m_projectTree->setRootIsDecorated(true);
+    m_projectTree->setIconSize(QSize(16, 16));
     m_projectTree->setIndentation(14);
     m_projectTree->setMinimumWidth(190);
-    auto *newProjectButton = new QPushButton(tr("Новый проект…"), explorer);
-    auto *openProjectButton = new QPushButton(tr("Открыть проект…"), explorer);
+    auto *newProjectButton = new QPushButton(StudioTheme::icon(QStringLiteral("file-folder"), 14), tr("Новый проект…"), explorer);
+    auto *openProjectButton = new QPushButton(StudioTheme::icon(QStringLiteral("upload"), 14), tr("Открыть проект…"), explorer);
     newProjectButton->setObjectName(QStringLiteral("newProjectButton"));
     openProjectButton->setObjectName(QStringLiteral("openProjectButton"));
     explorerLayout->addWidget(explorerTitle);
@@ -327,6 +339,8 @@ void AtlasStudioWindow::setupUi()
     m_sourceEdit->setObjectName(QStringLiteral("atlasCodeEditor"));
     m_sourceEdit->setPlaceholderText(tr("Введите Atlas Code…"));
     m_sourceEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_sourceEdit->setTabStopDistance(24.0);
+    m_highlighter = new AtlasCodeHighlighter(m_sourceEdit->document());
     sourceLayout->addWidget(m_sourceEdit);
     m_editorTabs->addTab(sourceTab, tr("main.atlas"));
 
@@ -420,7 +434,10 @@ void AtlasStudioWindow::setupUi()
     m_diagnosticsEdit->setObjectName(QStringLiteral("problemsOutput"));
     m_diagnosticsEdit->setReadOnly(true);
     m_diagnosticsEdit->setHtml(tr("<span style='color:#a0a0a0'>Создайте или откройте проект Atlas Code.</span>"));
-    m_bottomTabs->addTab(m_diagnosticsEdit, tr("Проблемы и сборка"));
+    m_bottomTabs->addTab(m_diagnosticsEdit, QStringLiteral(" "));
+    m_problemsBadge = new QLabel(m_bottomTabs);
+    m_problemsBadge->setObjectName(QStringLiteral("problemsBadge"));
+    m_bottomTabs->tabBar()->setTabButton(0, QTabBar::LeftSide, m_problemsBadge);
     auto *reference = new QTextEdit(m_bottomTabs);
     reference->setObjectName(QStringLiteral("atlasCodeReference"));
     reference->setReadOnly(true);
@@ -431,7 +448,12 @@ void AtlasStudioWindow::setupUi()
         "<p><b>3.</b> Во вкладке «Пакет и разрешения» заполните ID, описание, список файлов и только нужные разрешения.</p>"
         "<p><b>4.</b> Нажмите «Скомпилировать», затем «Собрать .atp». В архив попадут <code>manifest.json</code>, ATBC и явно объявленные ресурсы; исходные <code>.atlas</code> не включаются.</p>"
         "<p><b>Безопасность.</b> Atlas Code не выполняет произвольный C++, не загружает DLL и не получает доступ к файловой системе без объявленного разрешения.</p>"));
-    m_bottomTabs->addTab(reference, tr("Справочник Atlas Code"));
+    m_bottomTabs->addTab(reference, QStringLiteral(" "));
+    auto *referenceBadge = new QLabel(m_bottomTabs);
+    referenceBadge->setObjectName(QStringLiteral("referenceBadge"));
+    referenceBadge->setPixmap(StudioTheme::icon(QStringLiteral("book"), 14).pixmap(QSize(14, 14)));
+    referenceBadge->setToolTip(tr("Справочник Atlas Code"));
+    m_bottomTabs->tabBar()->setTabButton(1, QTabBar::LeftSide, referenceBadge);
     workbench->addWidget(m_bottomTabs);
     workbench->setStretchFactor(0, 1);
     workbench->setStretchFactor(1, 0);
@@ -594,16 +616,19 @@ void AtlasStudioWindow::submitToCatalog()
         const QString errorMessage = reply->errorString();
         reply->deleteLater();
         setDiagnostics({tr("Не удалось отправить заявку: %1").arg(errorMessage)}, false);
+        animateStatusMessage(tr("Отправка не удалась"), StudioTheme::error());
         return;
     }
     const QJsonObject result = QJsonDocument::fromJson(reply->readAll()).object();
     reply->deleteLater();
     if (!result.contains(QStringLiteral("html_url"))) {
         setDiagnostics({tr("Не удалось отправить заявку: сервер не вернул ссылку на issue.")}, false);
+        animateStatusMessage(tr("Отправка не удалась"), StudioTheme::error());
         return;
     }
     const QString issueUrl = result.value(QStringLiteral("html_url")).toString();
     setDiagnostics({tr("Заявка отправлена: %1. Положите plugin.atp и каталог src/ с исходниками в submissions/ репозитория заявок.").arg(issueUrl)}, true);
+    animateStatusMessage(tr("Заявка отправлена в каталог"), StudioTheme::success());
     QDesktopServices::openUrl(QUrl(issueUrl));
 }
 
@@ -638,11 +663,13 @@ void AtlasStudioWindow::createProject()
     m_categoryCombo->setCurrentIndex(0);
     applyPermissions({});
     m_sourceEdit->setPlainText(defaultSource());
+    updateProblemsBadge(0);
     m_modified = true;
     if (!saveProject()) {
         return;
     }
     setDiagnostics({tr("Создан новый проект. Отредактируйте код и нажмите «Собрать .atp»." )}, true);
+    animateStatusMessage(tr("Новый проект создан"), StudioTheme::success());
 }
 
 void AtlasStudioWindow::openProject()
@@ -674,7 +701,7 @@ bool AtlasStudioWindow::saveProject()
     m_modified = false;
     rebuildProjectTree();
     updateWindowTitle();
-    statusBar()->showMessage(tr("Проект сохранён"), 2500);
+    animateStatusMessage(tr("Проект сохранён"), StudioTheme::success());
     return true;
 }
 
@@ -961,22 +988,30 @@ void AtlasStudioWindow::rebuildProjectTree()
 
     const QFileInfo projectInfo(m_projectDirectory);
     auto *root = new QTreeWidgetItem(m_projectTree, {projectInfo.fileName().isEmpty() ? m_projectDirectory : projectInfo.fileName()});
+    root->setIcon(0, treeIcon(QStringLiteral("module")));
     root->setExpanded(true);
     auto *manifest = new QTreeWidgetItem(root, {QStringLiteral("atlas-project.json")});
+    manifest->setIcon(0, fileIcon(QStringLiteral("atlas-project.json")));
     manifest->setData(0, Qt::UserRole, QStringLiteral("manifest"));
     auto *sourceFolder = new QTreeWidgetItem(root, {QStringLiteral("src")});
+    sourceFolder->setIcon(0, treeIcon(QStringLiteral("file-folder")));
     sourceFolder->setExpanded(true);
     auto *source = new QTreeWidgetItem(sourceFolder, {QStringLiteral("main.atlas")});
+    source->setIcon(0, fileIcon(QStringLiteral("main.atlas")));
     source->setData(0, Qt::UserRole, QStringLiteral("source"));
     auto *buildFolder = new QTreeWidgetItem(root, {QStringLiteral("build")});
+    buildFolder->setIcon(0, treeIcon(QStringLiteral("file-folder")));
     auto *distFolder = new QTreeWidgetItem(root, {QStringLiteral("dist")});
+    distFolder->setIcon(0, treeIcon(QStringLiteral("file-folder")));
     if (QFileInfo::exists(atbcPath())) {
-        new QTreeWidgetItem(buildFolder, {QStringLiteral("main.atbc")});
+        auto *atbc = new QTreeWidgetItem(buildFolder, {QStringLiteral("main.atbc")});
+        atbc->setIcon(0, fileIcon(QStringLiteral("main.atbc")));
         buildFolder->setExpanded(true);
     }
     const QDir dist(QDir(m_projectDirectory).filePath(QStringLiteral("dist")));
     for (const QFileInfo &file : dist.entryInfoList(QStringList{QStringLiteral("*.atp")}, QDir::Files, QDir::Name)) {
-        new QTreeWidgetItem(distFolder, {file.fileName()});
+        auto *package = new QTreeWidgetItem(distFolder, {file.fileName()});
+        package->setIcon(0, fileIcon(file.fileName()));
     }
     if (distFolder->childCount() > 0) {
         distFolder->setExpanded(true);
@@ -989,7 +1024,7 @@ void AtlasStudioWindow::showAtlasCodeReference()
     if (m_bottomTabs) {
         m_bottomTabs->setCurrentIndex(1);
     }
-    statusBar()->showMessage(tr("Открыт встроенный справочник Atlas Code."), 3000);
+    animateStatusMessage(tr("Открыт встроенный справочник Atlas Code."), StudioTheme::accent());;
 }
 
 void AtlasStudioWindow::setProjectDirectory(const QString &directory)
@@ -998,6 +1033,7 @@ void AtlasStudioWindow::setProjectDirectory(const QString &directory)
     m_modified = false;
     rebuildProjectTree();
     updateWindowTitle();
+    updateProblemsBadge(0);
 }
 
 bool AtlasStudioWindow::loadProject(const QString &directory, QString *error)
@@ -1116,9 +1152,63 @@ void AtlasStudioWindow::setDiagnostics(const QStringList &diagnostics, const boo
 {
     m_diagnosticsEdit->setHtml(QStringLiteral("<div style='color:%1'>%2</div>")
         .arg(success ? QStringLiteral("#89d185") : QStringLiteral("#f14c4c"), diagnosticsText(diagnostics)));
+    updateProblemsBadge(success ? 0 : diagnostics.size());
     if (m_bottomTabs) {
         m_bottomTabs->setCurrentIndex(0);
     }
+}
+
+QIcon AtlasStudioWindow::fileIcon(const QString &fileName) const
+{
+    const QString lower = fileName.toLower();
+    if (lower.endsWith(QLatin1String(".atlas"))) {
+        return treeIcon(QStringLiteral("file-atlas"));
+    }
+    if (lower.endsWith(QLatin1String(".atbc"))) {
+        return treeIcon(QStringLiteral("file-atbc"));
+    }
+    if (lower.endsWith(QLatin1String(".atp"))) {
+        return treeIcon(QStringLiteral("file-atp"));
+    }
+    if (lower.endsWith(QLatin1String(".json"))) {
+        return treeIcon(QStringLiteral("file-json"));
+    }
+    return treeIcon(QStringLiteral("file-atlas"));
+}
+
+QIcon AtlasStudioWindow::treeIcon(const QString &name) const
+{
+    return StudioTheme::icon(name, 16);
+}
+
+void AtlasStudioWindow::updateProblemsBadge(int count)
+{
+    if (!m_problemsBadge) {
+        return;
+    }
+    if (count <= 0) {
+        m_problemsBadge->setPixmap(StudioTheme::icon(QStringLiteral("ok-dot"), 10).pixmap(QSize(10, 10)));
+        m_problemsBadge->setToolTip(tr("Ошибок нет"));
+    } else {
+        m_problemsBadge->setPixmap(StudioTheme::icon(QStringLiteral("error-dot"), 10).pixmap(QSize(10, 10)));
+        m_problemsBadge->setToolTip(tr("Ошибок: %1").arg(count));
+    }
+}
+
+void AtlasStudioWindow::animateStatusMessage(const QString &message, const QColor &color)
+{
+    QStatusBar *bar = statusBar();
+    if (!bar) {
+        return;
+    }
+    bar->clearMessage();
+    bar->showMessage(message);
+    auto *animation = new QPropertyAnimation(bar, "styleSheet", bar);
+    animation->setDuration(1400);
+    animation->setStartValue(QStringLiteral("QStatusBar { background: %1; } ").arg(color.darker(120).name()));
+    animation->setEndValue(QString());
+    animation->setEasingCurve(QEasingCurve::OutQuad);
+    animation->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void AtlasStudioWindow::updateWindowTitle()

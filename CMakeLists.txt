@@ -11,7 +11,7 @@ set(CMAKE_AUTORCC ON)
 
 include(CTest)
 
-find_package(Qt5 5.15 REQUIRED COMPONENTS Core Gui Widgets Network Test)
+find_package(Qt5 5.15 REQUIRED COMPONENTS Core Gui Svg Widgets Network Test)
 
 add_library(atlas_studio_miniz STATIC
     third_party/miniz/miniz.c
@@ -37,15 +37,33 @@ target_link_libraries(atlas_studio_services PUBLIC
     atlas_studio_miniz
 )
 
+add_library(atlas_studio_ui STATIC
+    src/studio/studio_theme.cpp
+    src/studio/studio_theme.h
+    src/studio/atlas_code_highlighter.cpp
+    src/studio/atlas_code_highlighter.h
+)
+target_include_directories(atlas_studio_ui PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(atlas_studio_ui PUBLIC
+    Qt5::Core
+    Qt5::Gui
+    Qt5::Svg
+)
+
 add_executable(AtlasStudio WIN32
     src/main.cpp
     src/studio/atlas_studio_window.cpp
     src/studio/atlas_studio_window.h
+    assets/assets.qrc
 )
 target_link_libraries(AtlasStudio PRIVATE
     atlas_studio_services
+    atlas_studio_ui
     Qt5::Core
     Qt5::Gui
+    Qt5::Svg
     Qt5::Widgets
 )
 
@@ -98,11 +116,18 @@ if(BUILD_TESTING)
         tests/atlas_studio_ui_test.cpp
         src/studio/atlas_studio_window.cpp
         src/studio/atlas_studio_window.h
+        src/studio/studio_theme.cpp
+        src/studio/studio_theme.h
+        src/studio/atlas_code_highlighter.cpp
+        src/studio/atlas_code_highlighter.h
+        assets/assets.qrc
     )
     target_link_libraries(atlas_studio_ui_test PRIVATE
         atlas_studio_services
+        atlas_studio_ui
         Qt5::Core
         Qt5::Gui
+        Qt5::Svg
         Qt5::Widgets
     )
     add_test(NAME atlas_studio_ui_test COMMAND atlas_studio_ui_test)
@@ -111,11 +136,18 @@ if(BUILD_TESTING)
         tests/atlas_studio_submit_test.cpp
         src/studio/atlas_studio_window.cpp
         src/studio/atlas_studio_window.h
+        src/studio/studio_theme.cpp
+        src/studio/studio_theme.h
+        src/studio/atlas_code_highlighter.cpp
+        src/studio/atlas_code_highlighter.h
+        assets/assets.qrc
     )
     target_link_libraries(atlas_studio_submit_test PRIVATE
         atlas_studio_services
+        atlas_studio_ui
         Qt5::Core
         Qt5::Gui
+        Qt5::Svg
         Qt5::Widgets
         Qt5::Network
     )

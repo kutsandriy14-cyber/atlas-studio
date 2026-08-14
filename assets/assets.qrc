@@ -1,0 +1,18 @@
+<RCC>
+    <qresource prefix="/atlas-studio">
+        <file>icons/atlas-mark.svg</file>
+        <file>icons/code.svg</file>
+        <file>icons/compile.svg</file>
+        <file>icons/package.svg</file>
+        <file>icons/upload.svg</file>
+        <file>icons/book.svg</file>
+        <file>icons/file-folder.svg</file>
+        <file>icons/file-atlas.svg</file>
+        <file>icons/file-atbc.svg</file>
+        <file>icons/file-atp.svg</file>
+        <file>icons/file-json.svg</file>
+        <file>icons/module.svg</file>
+        <file>icons/error-dot.svg</file>
+        <file>icons/ok-dot.svg</file>
+    </qresource>
+</RCC>

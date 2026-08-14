@@ -1,12 +1,15 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QColor>
+#include <QHash>
 #include <QVector>
 
 class QAction;
 class QCheckBox;
 class QCloseEvent;
 class QComboBox;
+class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
@@ -15,6 +18,7 @@ class QTabWidget;
 class QTreeWidget;
 
 namespace atlas::studio {
+class AtlasCodeHighlighter;
 
 class AtlasStudioWindow final : public QMainWindow
 {
@@ -64,6 +68,12 @@ private:
     void updateWindowTitle();
     void submitToCatalog();
 
+    void animateStatusMessage(const QString &message, const QColor &color);
+    void updateProblemsBadge(int count);
+    QIcon fileIcon(const QString &fileName) const;
+    QIcon treeIcon(const QString &name) const;
+    void decorateExplorerTitle();
+
     QString m_projectDirectory;
     bool m_modified = false;
 
@@ -83,6 +93,10 @@ private:
     QTabWidget *m_editorTabs = nullptr;
     QTabWidget *m_bottomTabs = nullptr;
     QTreeWidget *m_projectTree = nullptr;
+    QLabel *m_statusText = nullptr;
+    QLabel *m_problemsBadge = nullptr;
+
+    AtlasCodeHighlighter *m_highlighter = nullptr;
     QCheckBox *m_storagePermission = nullptr;
     QCheckBox *m_networkPermission = nullptr;
     QCheckBox *m_serversControlPermission = nullptr;
