@@ -36,6 +36,7 @@ private slots:
     bool saveProject();
     void compileAtbc();
     void packageProject();
+    void testPlugin();
     void installPackage();
     void markModified();
 
@@ -54,7 +55,9 @@ private:
     };
 
     bool compileCurrentProject(QStringList *diagnostics, QVector<ProjectPackageFile> *compiledFiles = nullptr);
+    bool discoverPackageFiles(QVector<ProjectPackageFile> *files, QStringList *diagnostics) const;
     bool declaredPackageFiles(QVector<ProjectPackageFile> *files, QStringList *diagnostics) const;
+    void refreshDiscoveredPackageFiles();
     QString projectFilePath() const;
     QString sourceFilePath() const;
     QString buildDirectoryPath() const;
@@ -67,6 +70,7 @@ private:
     void showAtlasCodeReference();
     void updateWindowTitle();
     void submitToCatalog();
+    void setTestResult(bool success, const QStringList &diagnostics);
 
     void animateStatusMessage(const QString &message, const QColor &color);
     void updateProblemsBadge(int count);
@@ -108,7 +112,11 @@ private:
     QCheckBox *m_launcherNavigatePermission = nullptr;
     QPushButton *m_compileButton = nullptr;
     QPushButton *m_packageButton = nullptr;
+    QPushButton *m_testButton = nullptr;
     QPushButton *m_installButton = nullptr;
+    QTextEdit *m_testLogEdit = nullptr;
+    bool m_lastTestPassed = false;
+    QString m_lastTestPackagePath;
 
     QAction *m_newAction = nullptr;
     QAction *m_openAction = nullptr;

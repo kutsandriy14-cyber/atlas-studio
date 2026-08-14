@@ -4,6 +4,7 @@
 #include "packager/atlas_package_builder.h"
 #include "studio/atlas_code_highlighter.h"
 #include "studio/studio_theme.h"
+#include "studio/studio_test_runner.h"
 
 #include <QAction>
 #include <QCheckBox>
@@ -13,7 +14,10 @@
 #include <QCryptographicHash>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDirIterator>
 #include <QEventLoop>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -49,6 +53,8 @@
 #include <QTreeWidgetItem>
 #include <QUrl>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace atlas::studio {
 namespace {
@@ -283,6 +289,9 @@ void AtlasStudioWindow::setupUi()
     m_compileButton->setObjectName(QStringLiteral("compileButton"));
     m_packageButton = new QPushButton(StudioTheme::icon(QStringLiteral("package"), 14), tr("Собрать .atp"), commandBar);
     m_packageButton->setObjectName(QStringLiteral("packageButton"));
+    m_testButton = new QPushButton(StudioTheme::icon(QStringLiteral("compile"), 14), tr("Тестировать"), commandBar);
+    m_testButton->setObjectName(QStringLiteral("testButton"));
+    m_testButton->setToolTip(tr("Проверить исходники, ATBC, пакет и изолированную тестовую среду перед публикацией"));
     m_installButton = new QPushButton(StudioTheme::icon(QStringLiteral("upload"), 14), tr("Показать пакет"), commandBar);
     m_installButton->setObjectName(QStringLiteral("showPackageButton"));
     commandLayout->addWidget(brandIcon);
@@ -290,6 +299,7 @@ void AtlasStudioWindow::setupUi()
     commandLayout->addWidget(projectCaption, 1);
     commandLayout->addWidget(m_compileButton);
     commandLayout->addWidget(m_packageButton);
+    commandLayout->addWidget(m_testButton);
     commandLayout->addWidget(m_installButton);
     rootLayout->addWidget(commandBar);
 
@@ -381,8 +391,9 @@ void AtlasStudioWindow::setupUi()
     m_actionsEdit->setToolTip(tr("Уникальные ID действий Runtime через запятую."));
     m_packageFilesEdit = new QPlainTextEdit(metadataBox);
     m_packageFilesEdit->setObjectName(QStringLiteral("packageFilesEditor"));
-    m_packageFilesEdit->setPlaceholderText(tr("src/main.atlas -> program/main.atbc\nassets/info.json -> resources/info.json"));
-    m_packageFilesEdit->setToolTip(tr("Одна запись на строку: путь в проекте -> путь в .atp. Исходники .atlas компилируются в ATBC; ресурсы копируются только в resources/."));
+    m_packageFilesEdit->setReadOnly(true);
+    m_packageFilesEdit->setPlaceholderText(tr("Файлы проекта определяются автоматически перед сборкой"));
+    m_packageFilesEdit->setToolTip(tr("Studio автоматически находит все .atlas в проекте и ресурсы вне build/, dist/ и служебных каталогов. Ручное перечисление файлов больше не требуется."));
     m_packageFilesEdit->setFixedHeight(102);
     m_categoryCombo = new QComboBox(metadataBox);
     m_categoryCombo->addItems({tr("Общее"), tr("Серверы"), tr("Интерфейс"), tr("Утилиты"), tr("Контент")});
@@ -399,7 +410,7 @@ void AtlasStudioWindow::setupUi()
     form->addRow(tr("Мин. Launcher"), m_minimumLauncherEdit);
     form->addRow(tr("Страницы UI"), m_pagesEdit);
     form->addRow(tr("Действия Runtime"), m_actionsEdit);
-    form->addRow(tr("Файлы пакета"), m_packageFilesEdit);
+    form->addRow(tr("Файлы пакета (авто)"), m_packageFilesEdit);
     form->addRow(tr("Сайт"), m_homepageEdit);
     metadataLayout->addWidget(metadataBox);
 
@@ -475,6 +486,16 @@ void AtlasStudioWindow::setupUi()
     referenceBadge->setPixmap(StudioTheme::icon(QStringLiteral("book"), 14).pixmap(QSize(14, 14)));
     referenceBadge->setToolTip(tr("Справочник Orvexa Code"));
     m_bottomTabs->tabBar()->setTabButton(1, QTabBar::LeftSide, referenceBadge);
+    m_testLogEdit = new QTextEdit(m_bottomTabs);
+    m_testLogEdit->setObjectName(QStringLiteral("testLogOutput"));
+    m_testLogEdit->setReadOnly(true);
+    m_testLogEdit->setHtml(tr("<span style='color:#a0a0a0'>Результаты тестирования плагина появятся здесь.</span>"));
+    m_bottomTabs->addTab(m_testLogEdit, QStringLiteral(" "));
+    auto *testBadge = new QLabel(m_bottomTabs);
+    testBadge->setObjectName(QStringLiteral("testBadge"));
+    testBadge->setPixmap(StudioTheme::icon(QStringLiteral("compile"), 14).pixmap(QSize(14, 14)));
+    testBadge->setToolTip(tr("Тестирование плагина"));
+    m_bottomTabs->tabBar()->setTabButton(2, QTabBar::LeftSide, testBadge);
     workbench->addWidget(m_bottomTabs);
     workbench->setStretchFactor(0, 1);
     workbench->setStretchFactor(1, 0);
@@ -488,6 +509,7 @@ void AtlasStudioWindow::setupUi()
 
     connect(m_compileButton, &QPushButton::clicked, this, &AtlasStudioWindow::compileAtbc);
     connect(m_packageButton, &QPushButton::clicked, this, &AtlasStudioWindow::packageProject);
+    connect(m_testButton, &QPushButton::clicked, this, &AtlasStudioWindow::testPlugin);
     connect(m_installButton, &QPushButton::clicked, this, &AtlasStudioWindow::installPackage);
     connect(newProjectButton, &QPushButton::clicked, this, &AtlasStudioWindow::createProject);
     connect(openProjectButton, &QPushButton::clicked, this, &AtlasStudioWindow::openProject);
@@ -535,6 +557,7 @@ void AtlasStudioWindow::setupActions()
     QMenu *buildMenu = menuBar()->addMenu(tr("&Сборка"));
     buildMenu->addAction(tr("Скомпилировать ATBC"), this, &AtlasStudioWindow::compileAtbc, QKeySequence(Qt::CTRL | Qt::Key_B));
     buildMenu->addAction(tr("Собрать .atp"), this, &AtlasStudioWindow::packageProject, QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B));
+    buildMenu->addAction(tr("Тестировать плагин"), this, &AtlasStudioWindow::testPlugin, QKeySequence(Qt::CTRL | Qt::Key_T));
     buildMenu->addAction(tr("Показать готовый пакет"), this, &AtlasStudioWindow::installPackage);
     buildMenu->addSeparator();
     buildMenu->addAction(tr("Отправить в каталог…"), this, &AtlasStudioWindow::submitToCatalog);
@@ -548,6 +571,14 @@ void AtlasStudioWindow::submitToCatalog()
 {
     if (m_projectDirectory.isEmpty()) {
         QMessageBox::information(this, tr("Отправка в каталог"), tr("Сначала откройте проект плагина в Orvexa Studio."));
+        return;
+    }
+    if (!m_lastTestPassed) {
+        QMessageBox::warning(this, tr("Публикация заблокирована"),
+            tr("Перед отправкой в каталог успешно протестируйте текущую версию плагина кнопкой «Тестировать»."));
+        if (m_bottomTabs) {
+            m_bottomTabs->setCurrentWidget(m_testLogEdit);
+        }
         return;
     }
     const QString package = packagePath();
@@ -681,7 +712,7 @@ void AtlasStudioWindow::createProject()
     m_minimumLauncherEdit->setText(QStringLiteral("0.7.5"));
     m_pagesEdit->setText(QStringLiteral("welcome"));
     m_actionsEdit->clear();
-    m_packageFilesEdit->setPlainText(QStringLiteral("src/main.atlas -> program/main.atbc"));
+    m_packageFilesEdit->setPlainText(tr("Файлы будут обнаружены автоматически при сборке"));
     m_descriptionEdit->setPlainText(tr("Первый плагин Orvexa Code."));
     m_categoryCombo->setCurrentIndex(0);
     applyPermissions({QStringLiteral("ui.feedback"), QStringLiteral("content.read")});
@@ -726,6 +757,115 @@ bool AtlasStudioWindow::saveProject()
     updateWindowTitle();
     animateStatusMessage(tr("Проект сохранён"), StudioTheme::success());
     return true;
+}
+
+bool AtlasStudioWindow::discoverPackageFiles(QVector<ProjectPackageFile> *files, QStringList *diagnostics) const
+{
+    files->clear();
+    if (m_projectDirectory.isEmpty()) {
+        diagnostics->append(tr("Сначала создайте или откройте проект."));
+        return false;
+    }
+
+    const QDir root(m_projectDirectory);
+    const QStringList excludedDirectories = {
+        QStringLiteral(".git"), QStringLiteral(".github"), QStringLiteral(".idea"),
+        QStringLiteral(".vscode"), QStringLiteral("build"), QStringLiteral("dist")
+    };
+    const QStringList excludedFiles = {
+        QStringLiteral("atlas-project.json"), QStringLiteral("package.json"),
+        QStringLiteral("CMakeLists.txt")
+    };
+    struct Candidate {
+        QString sourcePath;
+        bool program = false;
+    };
+    QVector<Candidate> candidates;
+    QDirIterator iterator(m_projectDirectory, QDir::Files | QDir::NoDotAndDotDot,
+                          QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        const QString absolutePath = iterator.next();
+        const QFileInfo info(absolutePath);
+        const QString relativePath = QDir::cleanPath(QDir::fromNativeSeparators(root.relativeFilePath(absolutePath)));
+        const QStringList parts = relativePath.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        bool excluded = false;
+        for (const QString &part : parts) {
+            if (excludedDirectories.contains(part, Qt::CaseInsensitive) || part.startsWith(QLatin1Char('.'))) {
+                excluded = true;
+                break;
+            }
+        }
+        if (excluded || excludedFiles.contains(info.fileName(), Qt::CaseInsensitive) || !safeRelativePath(relativePath)) {
+            continue;
+        }
+        if (info.suffix().compare(QStringLiteral("atlas"), Qt::CaseInsensitive) == 0) {
+            candidates.append({relativePath, true});
+        } else if (!prohibitedResourceSuffix(relativePath) && info.suffix().compare(QStringLiteral("atp"), Qt::CaseInsensitive) != 0) {
+            candidates.append({relativePath, false});
+        }
+    }
+
+    std::sort(candidates.begin(), candidates.end(), [](const Candidate &left, const Candidate &right) {
+        return left.sourcePath.toCaseFolded() < right.sourcePath.toCaseFolded();
+    });
+
+    QSet<QString> archivePaths;
+    for (const Candidate &candidate : candidates) {
+        const QString source = candidate.sourcePath;
+        QString archive;
+        if (candidate.program) {
+            QString programPath = source;
+            if (programPath.startsWith(QStringLiteral("src/"), Qt::CaseInsensitive)) {
+                programPath.remove(0, 4);
+            }
+            programPath.chop(QStringLiteral(".atlas").size());
+            archive = QStringLiteral("program/") + programPath + QStringLiteral(".atbc");
+        } else {
+            archive = QStringLiteral("resources/") + source;
+        }
+        archive = QDir::cleanPath(archive);
+        const QString archiveKey = archive.toCaseFolded();
+        if (!safeRelativePath(archive) || archive == QLatin1String("manifest.json") || archivePaths.contains(archiveKey)) {
+            diagnostics->append(tr("Автопоиск обнаружил небезопасный или повторяющийся путь: %1").arg(source));
+            continue;
+        }
+        archivePaths.insert(archiveKey);
+        files->append({source, archive, candidate.program});
+    }
+
+    int programCount = 0;
+    for (const ProjectPackageFile &file : std::as_const(*files)) {
+        if (file.program) {
+            ++programCount;
+        }
+    }
+    if (files->size() > 128) {
+        diagnostics->append(tr("Автопоиск нашёл %1 файлов; лимит одного .atp — 128 файлов.").arg(files->size()));
+    }
+    if (programCount == 0) {
+        diagnostics->append(tr("В каталоге проекта не найден исходник Orvexa Code (*.atlas)."));
+    }
+    if (programCount > 32) {
+        diagnostics->append(tr("Автопоиск нашёл %1 программ; лимит одного .atp — 32 программы.").arg(programCount));
+    }
+    return diagnostics->isEmpty();
+}
+
+void AtlasStudioWindow::refreshDiscoveredPackageFiles()
+{
+    QVector<ProjectPackageFile> files;
+    QStringList diagnostics;
+    if (!discoverPackageFiles(&files, &diagnostics)) {
+        return;
+    }
+    QStringList lines;
+    for (const ProjectPackageFile &file : std::as_const(files)) {
+        lines.append(QStringLiteral("%1 -> %2").arg(file.sourcePath, file.archivePath));
+    }
+    const QString text = lines.join(QLatin1Char('\n'));
+    if (m_packageFilesEdit->toPlainText() != text) {
+        m_packageFilesEdit->setPlainText(text);
+    }
 }
 
 bool AtlasStudioWindow::declaredPackageFiles(QVector<ProjectPackageFile> *files, QStringList *diagnostics) const
@@ -821,7 +961,7 @@ bool AtlasStudioWindow::validateProject(QStringList *diagnostics) const
     validateDeclarations(commaSeparatedValues(m_pagesEdit->text()), 16, tr("Страницы UI"));
     validateDeclarations(commaSeparatedValues(m_actionsEdit->text()), 64, tr("Действия Runtime"));
     QVector<ProjectPackageFile> files;
-    declaredPackageFiles(&files, diagnostics);
+    discoverPackageFiles(&files, diagnostics);
     if (m_sourceEdit->toPlainText().trimmed().isEmpty()) {
         diagnostics->append(tr("Исходный код Orvexa Code пуст."));
     }
@@ -833,13 +973,18 @@ bool AtlasStudioWindow::compileCurrentProject(QStringList *diagnostics, QVector<
     if (!validateProject(diagnostics)) {
         return false;
     }
-    if (!saveProject()) {
-        diagnostics->append(tr("Сначала исправьте ошибку сохранения проекта."));
-        return false;
-    }
 
     QVector<ProjectPackageFile> declared;
-    if (!declaredPackageFiles(&declared, diagnostics)) {
+    if (!discoverPackageFiles(&declared, diagnostics)) {
+        return false;
+    }
+    QStringList discoveredLines;
+    for (const ProjectPackageFile &file : std::as_const(declared)) {
+        discoveredLines.append(QStringLiteral("%1 -> %2").arg(file.sourcePath, file.archivePath));
+    }
+    m_packageFilesEdit->setPlainText(discoveredLines.join(QLatin1Char('\n')));
+    if (!saveProject()) {
+        diagnostics->append(tr("Сначала исправьте ошибку сохранения проекта."));
         return false;
     }
 
@@ -932,6 +1077,57 @@ void AtlasStudioWindow::compileAtbc()
     }
 }
 
+void AtlasStudioWindow::testPlugin()
+{
+    if (m_projectDirectory.isEmpty()) {
+        QMessageBox::information(this, tr("Тестирование плагина"), tr("Сначала создайте или откройте проект Orvexa Code."));
+        return;
+    }
+    if (!saveProject()) {
+        return;
+    }
+
+    m_lastTestPassed = false;
+    m_lastTestPackagePath.clear();
+    m_testButton->setEnabled(false);
+    animateStatusMessage(tr("Тестирование…"), QColor(238, 196, 64));
+
+    PluginTestRequest request;
+    request.projectDirectory = m_projectDirectory;
+    request.outputPackagePath = packagePath();
+    auto *watcher = new QFutureWatcher<PluginTestResult>(this);
+    connect(watcher, &QFutureWatcher<PluginTestResult>::finished, this, [this, watcher] {
+        const PluginTestResult result = watcher->result();
+        setTestResult(result.success, result.diagnostics);
+        if (result.success) {
+            m_lastTestPackagePath = result.packagePath;
+        }
+        m_testButton->setEnabled(true);
+        watcher->deleteLater();
+    });
+    watcher->setFuture(QtConcurrent::run([request] {
+        return StudioTestRunner::run(request);
+    }));
+}
+
+void AtlasStudioWindow::setTestResult(const bool success, const QStringList &diagnostics)
+{
+    m_lastTestPassed = success;
+    if (m_testLogEdit) {
+        QStringList lines = diagnostics;
+        if (lines.isEmpty()) {
+            lines.append(success ? tr("Тестирование завершено успешно.") : tr("Тестирование завершено с ошибкой."));
+        }
+        m_testLogEdit->setPlainText(lines.join(QLatin1Char('\n')));
+        m_bottomTabs->setCurrentWidget(m_testLogEdit);
+    }
+    if (success) {
+        animateStatusMessage(tr("Тестирование пройдено"), StudioTheme::success());
+    } else {
+        animateStatusMessage(tr("Тестирование не пройдено"), StudioTheme::error());
+    }
+}
+
 void AtlasStudioWindow::packageProject()
 {
     QStringList diagnostics;
@@ -968,6 +1164,8 @@ void AtlasStudioWindow::installPackage()
 
 void AtlasStudioWindow::markModified()
 {
+    m_lastTestPassed = false;
+    m_lastTestPackagePath.clear();
     if (!m_projectDirectory.isEmpty()) {
         m_modified = true;
         updateWindowTitle();
@@ -1054,6 +1252,8 @@ void AtlasStudioWindow::setProjectDirectory(const QString &directory)
 {
     m_projectDirectory = QDir::cleanPath(directory);
     m_modified = false;
+    m_lastTestPassed = false;
+    m_lastTestPackagePath.clear();
     rebuildProjectTree();
     updateWindowTitle();
     updateProblemsBadge(0);
@@ -1100,6 +1300,8 @@ bool AtlasStudioWindow::loadProject(const QString &directory, QString *error)
     m_packageFilesEdit->setPlainText(packageFiles.join(QLatin1Char('\n')));
     m_sourceEdit->setPlainText(QString::fromUtf8(source.readAll()));
     m_modified = false;
+    m_lastTestPassed = false;
+    m_lastTestPackagePath.clear();
     updateWindowTitle();
     setDiagnostics({tr("Открыт проект: %1").arg(m_projectDirectory)}, true);
     return true;

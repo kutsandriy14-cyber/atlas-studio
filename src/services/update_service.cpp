@@ -17,7 +17,7 @@
 namespace atlas {
 namespace {
 constexpr auto kGitHubApiVersion = "2026-03-10";
-constexpr auto kUpdateUserAgent = "OrvexaStudio-Updater/0.3.0";
+constexpr auto kUpdateUserAgent = "OrvexaStudio-Updater/0.4.0";
 constexpr int kRequestTimeoutMs = 60000;
 
 QString normalizedVersion(QString value)
