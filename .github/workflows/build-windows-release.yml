@@ -109,7 +109,7 @@ jobs:
             if (-not (Test-Path (Join-Path $deploy $required))) { throw "Portable runtime missing: $required" }
           }
 
-          $archive = 'dist\AtlasStudio-0.2.0-win64-portable.zip'
+          $archive = 'dist\AtlasStudio-0.2.1-win64-portable.zip'
           if (Test-Path $archive) { Remove-Item $archive -Force }
           Compress-Archive -Path "$deploy\*" -DestinationPath $archive -CompressionLevel Optimal
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
@@ -119,8 +119,8 @@ jobs:
       - name: Upload portable archive
         uses: actions/upload-artifact@v4
         with:
-          name: atlas-studio-0.2.0-windows
+          name: atlas-studio-0.2.1-windows
           if-no-files-found: error
           path: |
-            dist/AtlasStudio-0.2.0-win64-portable.zip
+            dist/AtlasStudio-0.2.1-win64-portable.zip
             dist/SHA256SUMS.txt

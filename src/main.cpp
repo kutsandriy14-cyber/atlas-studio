@@ -12,7 +12,7 @@
 namespace {
 
 constexpr auto kStudioRepository = "kutsandriy14-cyber/atlas-studio";
-constexpr auto kStudioVersion = "0.2.0";
+constexpr auto kStudioVersion = "0.2.1";
 
 QString studioSettingsDirectory()
 {

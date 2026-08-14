@@ -318,6 +318,16 @@ int checkForUpdate(QApplication &application, const QStringList &arguments)
         return 2;
     }
 
+#ifdef Q_OS_WIN
+    // В системе может работать только одна проверка обновлений Studio. Если
+    // процесс уже показывает окно, новый экземпляр завершается без второго окна.
+    HANDLE checkMutex = CreateMutexW(nullptr, FALSE, L"Local\\AtlasStudioUpdaterCheck");
+    if (!checkMutex || GetLastError() == ERROR_ALREADY_EXISTS) {
+        if (checkMutex) CloseHandle(checkMutex);
+        return 0;
+    }
+#endif
+
     QSettings preference(QDir(settingsDirectory).filePath(QStringLiteral("updater.ini")), QSettings::IniFormat);
     atlas::UpdateService service;
     QObject::connect(&service, &atlas::UpdateService::noUpdateAvailable, &application, [&application]() {
@@ -399,7 +409,11 @@ int checkForUpdate(QApplication &application, const QStringList &arguments)
         application.quit();
     });
     service.checkForUpdate(repository, currentVersion);
-    return application.exec();
+    const int result = application.exec();
+#ifdef Q_OS_WIN
+    CloseHandle(checkMutex);
+#endif
+    return result;
 }
 
 } // namespace
