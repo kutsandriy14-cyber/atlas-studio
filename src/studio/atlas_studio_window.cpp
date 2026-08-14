@@ -8,7 +8,12 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QCryptographicHash>
+#include <QDialogButtonBox>
 #include <QDir>
+#include <QEventLoop>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QDesktopServices>
 #include <QFile>
 #include <QFileDialog>
@@ -486,10 +491,120 @@ void AtlasStudioWindow::setupActions()
     buildMenu->addAction(tr("Скомпилировать ATBC"), this, &AtlasStudioWindow::compileAtbc, QKeySequence(Qt::CTRL | Qt::Key_B));
     buildMenu->addAction(tr("Собрать .atp"), this, &AtlasStudioWindow::packageProject, QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B));
     buildMenu->addAction(tr("Показать готовый пакет"), this, &AtlasStudioWindow::installPackage);
+    buildMenu->addSeparator();
+    buildMenu->addAction(tr("Отправить в каталог…"), this, &AtlasStudioWindow::submitToCatalog);
 
     QMenu *helpMenu = menuBar()->addMenu(tr("&Справка"));
     helpMenu->addAction(tr("Справочник Atlas Code"), this, &AtlasStudioWindow::showAtlasCodeReference, QKeySequence::HelpContents);
     statusBar()->showMessage(tr("Готово. Создайте проект или откройте существующий Atlas Code проект."));
+}
+
+void AtlasStudioWindow::submitToCatalog()
+{
+    if (m_projectDirectory.isEmpty()) {
+        QMessageBox::information(this, tr("Отправка в каталог"), tr("Сначала откройте проект плагина в Atlas Studio."));
+        return;
+    }
+    const QString package = packagePath();
+    if (!QFileInfo::exists(package)) {
+        QMessageBox::information(this, tr("Отправка в каталог"), tr("Сначала соберите пакет .atp (Сборка → Собрать .atp). Заявка отправляется только с готовым пакетом."));
+        return;
+    }
+    const QString srcDir = QDir(m_projectDirectory).filePath(QStringLiteral("src"));
+    const QStringList sourceFiles = QDir(srcDir).entryList({QStringLiteral("*.atlas")}, QDir::Files);
+    if (sourceFiles.isEmpty() || !QFileInfo::exists(QDir(m_projectDirectory).filePath(QStringLiteral("atlas-project.json")))) {
+        QMessageBox::warning(this, tr("Отправка в каталог"), tr("Без исходного кода заявка не принимается. Убедитесь, что в каталоге проекта есть файлы .atlas и atlas-project.json."));
+        return;
+    }
+    const QString pluginName = m_nameEdit->text().trimmed();
+    const QString pluginVersion = m_versionEdit->text().trimmed();
+    const QString authorName = m_authorEdit->text().trimmed();
+    QString pluginId = m_idEdit->text().trimmed();
+    pluginId.replace(QStringLiteral("."), QStringLiteral("/"));
+    const QString description = m_descriptionEdit->toPlainText().trimmed();
+    if (pluginName.isEmpty() || pluginVersion.isEmpty() || pluginId.isEmpty()) {
+        QMessageBox::information(this, tr("Отправка в каталог"), tr("Заполните название, идентификатор и версию плагина в метаданных проекта."));
+        return;
+    }
+
+    QDialog dialog(this, Qt::WindowCloseButtonHint);
+    dialog.setWindowTitle(tr("Отправить плагин в каталог"));
+    QFormLayout *form = new QFormLayout(&dialog);
+    QLineEdit *tokenEdit = new QLineEdit(&dialog);
+    tokenEdit->setEchoMode(QLineEdit::Password);
+    tokenEdit->setPlaceholderText(QStringLiteral("ghp_... (только для этой отправки, не сохраняется)"));
+    form->addRow(tr("GitHub токен:"), tokenEdit);
+    QDialogButtonBox *box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    form->addRow(box);
+    QObject::connect(box, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(box, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QString token = tokenEdit->text().trimmed();
+    if (token.isEmpty()) {
+        QMessageBox::information(this, tr("Отправка в каталог"), tr("Токен не введён. Отправка отменена, токен не сохранён."));
+        return;
+    }
+
+    QFile atpFile(package);
+    if (!atpFile.open(QIODevice::ReadOnly)) {
+        setDiagnostics({tr("Не удалось открыть собранный пакет для проверки SHA-256: %1").arg(package)}, false);
+        return;
+    }
+    const QByteArray atpData = atpFile.readAll();
+    atpFile.close();
+    const QString sha256 = QString::fromLatin1(QCryptographicHash::hash(atpData, QCryptographicHash::Sha256).toHex().constData());
+
+    const QString issueTitle = QStringLiteral("Заявка: %1 v%2").arg(pluginName, pluginVersion);
+    const QString issueBody = QStringLiteral(
+        "**Плагин:** %1\n\n"
+        "**Идентификатор:** `%3`\n\n"
+        "**Версия:** %2\n\n"
+        "**Автор:** %4\n\n"
+        "**Описание:** %5\n\n"
+        "**SHA-256 пакета .atp:**\n\n`%6`\n\n"
+        "Пакет `plugin.atp` вместе с исходным кодом (`src/*.atlas` и `atlas-project.json`)"
+        " автор обязан положить в `submissions/%4/%7/` этого репозитория перед рассмотрением заявки.\n\n"
+        "*Заявка отправлена из Atlas Studio.*"
+    ).arg(pluginName, pluginVersion, pluginId, authorName.isEmpty() ? QStringLiteral("не указан") : authorName,
+          description.isEmpty() ? QStringLiteral("без описания") : description, sha256,
+          pluginId.replace(QStringLiteral("."), QStringLiteral("/")));
+
+    QUrl apiIssues(QStringLiteral("https://api.github.com/repos/kutsandriy14-cyber/atlas-plugin-submissions/issues"));
+    QNetworkRequest request(apiIssues);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(token).toUtf8());
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    QJsonObject payload;
+    payload.insert(QStringLiteral("title"), issueTitle);
+    payload.insert(QStringLiteral("body"), issueBody);
+    QJsonObject labels;
+    labels.insert(QStringLiteral("name"), QStringLiteral("plugin-submission"));
+    payload.insert(QStringLiteral("labels"), QJsonArray{labels});
+
+    QNetworkAccessManager manager;
+    manager.setTransferTimeout(30000);
+    QNetworkReply *reply = manager.post(request, QJsonDocument(payload).toJson());
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    if (reply->error() != QNetworkReply::NoError) {
+        const QString errorMessage = reply->errorString();
+        reply->deleteLater();
+        setDiagnostics({tr("Не удалось отправить заявку: %1").arg(errorMessage)}, false);
+        return;
+    }
+    const QJsonObject result = QJsonDocument::fromJson(reply->readAll()).object();
+    reply->deleteLater();
+    if (!result.contains(QStringLiteral("html_url"))) {
+        setDiagnostics({tr("Не удалось отправить заявку: сервер не вернул ссылку на issue.")}, false);
+        return;
+    }
+    const QString issueUrl = result.value(QStringLiteral("html_url")).toString();
+    setDiagnostics({tr("Заявка отправлена: %1. Положите plugin.atp и каталог src/ с исходниками в submissions/ репозитория заявок.").arg(issueUrl)}, true);
+    QDesktopServices::openUrl(QUrl(issueUrl));
 }
 
 void AtlasStudioWindow::createProject()

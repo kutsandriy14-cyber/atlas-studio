@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(AtlasStudio VERSION 0.1.0 LANGUAGES C CXX)
+project(AtlasStudio VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -79,6 +79,11 @@ install(FILES README.md LICENSE DESTINATION . OPTIONAL)
 if(BUILD_TESTING)
     add_test(NAME atlas_compiler_help COMMAND $<TARGET_FILE:AtlasCompiler> --help)
     add_test(NAME atlas_updater_help COMMAND $<TARGET_FILE:AtlasUpdater> --help)
+    if(UNIX)
+        set_tests_properties(atlas_compiler_help atlas_updater_help PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        )
+    endif()
 
     add_executable(atlas_studio_package_test
         tests/atlas_studio_package_test.cpp
@@ -101,6 +106,27 @@ if(BUILD_TESTING)
         Qt5::Widgets
     )
     add_test(NAME atlas_studio_ui_test COMMAND atlas_studio_ui_test)
+
+    add_executable(atlas_studio_submit_test
+        tests/atlas_studio_submit_test.cpp
+        src/studio/atlas_studio_window.cpp
+        src/studio/atlas_studio_window.h
+    )
+    target_link_libraries(atlas_studio_submit_test PRIVATE
+        atlas_studio_services
+        Qt5::Core
+        Qt5::Gui
+        Qt5::Widgets
+        Qt5::Network
+    )
+    add_test(NAME atlas_studio_submit_test COMMAND atlas_studio_submit_test)
+
+    if(UNIX)
+        set_tests_properties(atlas_studio_submit_test PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        )
+    endif()
+
     if(UNIX)
         set_tests_properties(atlas_studio_ui_test PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen"

@@ -62,6 +62,7 @@ private:
     void rebuildProjectTree();
     void showAtlasCodeReference();
     void updateWindowTitle();
+    void submitToCatalog();
 
     QString m_projectDirectory;
     bool m_modified = false;
