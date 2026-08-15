@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
     application.setApplicationName(QStringLiteral("OrvexaCompiler"));
-    application.setApplicationVersion(QStringLiteral("0.4.0"));
+    application.setApplicationVersion(QStringLiteral("0.4.0.1"));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(

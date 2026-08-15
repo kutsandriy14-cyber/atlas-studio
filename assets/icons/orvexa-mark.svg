@@ -5,6 +5,6 @@
       <stop offset="1" stop-color="#5ee0d1"/>
     </linearGradient>
   </defs>
-  <path d="M64 8 117 106H91L79 83H49l-12 23H11L64 8Zm0 35-9 21h18l-9-21Z" fill="url(#g)"/>
-  <path d="M64 8v35l9 21H55l9-21Z" fill="#eafffb" opacity=".9"/>
+  <circle cx="64" cy="64" r="46" fill="none" stroke="url(#g)" stroke-width="14"/>
+  <circle cx="64" cy="64" r="13" fill="#eafffb" opacity=".9"/>
 </svg>
